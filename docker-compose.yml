@@ -1,0 +1,78 @@
+services:
+
+  mysql:
+    image: mysql:8.0
+    container_name: raju-lms-mysql
+    restart: unless-stopped
+
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ecobrains_lms
+
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+    networks:
+      - lms-network
+
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+
+    container_name: raju-lms-backend
+    restart: unless-stopped
+
+    depends_on:
+      - mysql
+
+    environment:
+      TZ: Asia/Kolkata
+
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/ecobrains_lms?createDatabaseIfNotExist=true&useSSL=false&serverTimezone=Asia/Kolkata&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+
+      SPRING_JPA_PROPERTIES_HIBERNATE_JDBC_TIME_ZONE: Asia/Kolkata
+      SPRING_JACKSON_TIME_ZONE: Asia/Kolkata
+
+      APP_ADMIN_USERNAME: ${ADMIN_USERNAME}
+      APP_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      APP_ADMIN_URL_KEY: ${ADMIN_URL_KEY}
+
+      APP_JWT_SECRET: ${JWT_SECRET}
+
+      APP_CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+
+    ports:
+      - "8080:8080"
+
+    networks:
+      - lms-network
+
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+
+    container_name: raju-lms-frontend
+    restart: unless-stopped
+
+    depends_on:
+      - backend
+
+    ports:
+      - "80:80"
+
+    networks:
+      - lms-network
+
+
+networks:
+  lms-network:
+
+
+volumes:
+  mysql_data:

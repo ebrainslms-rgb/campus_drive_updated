@@ -1,0 +1,24 @@
+# Environment secrets
+.env
+**/.env
+
+# Frontend dependencies
+frontend/node_modules/
+
+# Frontend build
+frontend/dist/
+
+# Backend build
+backend/target/
+
+# Docker / generated archives
+*.zip
+
+# IDE files
+.idea/
+.vscode/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db

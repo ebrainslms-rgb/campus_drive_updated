@@ -1,0 +1,266 @@
+/* ─── Tailwind base layers ──────────────────────────────────────────────── */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Google Font is loaded via index.html <link> ──────────────────────── */
+
+/* ─── EchoBrains design tokens ───────────────────────────────────────────
+ * Professional light theme. Brand blue is the primary action colour;
+ * brand orange is used sparingly as an accent (active states, highlights)
+ * rather than covering large surfaces, per the "not a flashy AI dashboard"
+ * requirement.
+ * ────────────────────────────────────────────────────────────────────── */
+:root {
+  --eb-blue: #0F62FE;       /* primary brand / actions */
+  --eb-blue-dark: #0043CE;
+  --eb-blue-soft: #EAF1FF;  /* tinted backgrounds */
+  --eb-orange: #F97316;     /* accent only — active states, highlights */
+  --eb-orange-soft: #FFF1E6;
+
+  --eb-bg: #F6F8FB;         /* app canvas */
+  --eb-surface: #FFFFFF;    /* cards/panels */
+  --eb-surface-muted: #F1F4F9;
+
+  --eb-border: #E2E8F0;
+  --eb-border-strong: #CBD5E1;
+
+  --eb-text: #0F172A;       /* primary text */
+  --eb-text-muted: #64748B; /* secondary text */
+  --eb-text-faint: #94A3B8;
+
+  --eb-success: #059669;
+  --eb-success-soft: #ECFDF5;
+  --eb-warning: #B45309;
+  --eb-warning-soft: #FFFBEB;
+  --eb-danger: #DC2626;
+  --eb-danger-soft: #FEF2F2;
+}
+
+/* ─── Dark mode — a real dark theme, not an inverted light one ───────────
+ * Deep navy/charcoal surfaces, high-contrast light text, the same brand
+ * blue, orange kept as a rare accent. Applied via [data-theme="dark"] on
+ * <html>, toggled by ThemeContext (Profile → Settings → Appearance).
+ * ────────────────────────────────────────────────────────────────────── */
+[data-theme="dark"] {
+  --eb-blue: #3B82F6;
+  --eb-blue-dark: #60A5FA;
+  --eb-blue-soft: rgba(59, 130, 246, 0.14);
+  --eb-orange: #FB923C;
+  --eb-orange-soft: rgba(251, 146, 60, 0.12);
+
+  --eb-bg: #0B1220;
+  --eb-surface: #131C2E;
+  --eb-surface-muted: #1B2740;
+
+  --eb-border: #263248;
+  --eb-border-strong: #37455E;
+
+  --eb-text: #F1F5F9;
+  --eb-text-muted: #94A3B8;
+  --eb-text-faint: #64748B;
+
+  --eb-success: #34D399;
+  --eb-success-soft: rgba(52, 211, 153, 0.12);
+  --eb-warning: #FBBF24;
+  --eb-warning-soft: rgba(251, 191, 36, 0.12);
+  --eb-danger: #F87171;
+  --eb-danger-soft: rgba(248, 113, 113, 0.12);
+}
+
+/* ─── Root / body canvas ────────────────────────────────────────────────── */
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--eb-bg);
+    color: var(--eb-text);
+    @apply antialiased;
+    font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+    min-height: 100dvh;
+  }
+
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: var(--eb-surface-muted); }
+  ::-webkit-scrollbar-thumb {
+    background: var(--eb-border-strong);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+
+  /* Visible focus ring for keyboard navigation (accessibility) */
+  a:focus-visible, button:focus-visible, input:focus-visible,
+  select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid var(--eb-blue);
+    outline-offset: 2px;
+  }
+}
+
+/* ─── Reusable component classes ────────────────────────────────────────── */
+@layer components {
+
+  /* ── Card ───────────────────────────────────────────────────────────── */
+  .eb-card {
+    @apply w-full rounded-2xl p-8;
+    background: var(--eb-surface);
+    border: 1px solid var(--eb-border);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.04);
+  }
+
+  /* ── Form input / select ─────────────────────────────────────────────── */
+  .eb-input {
+    @apply w-full rounded-xl px-4 py-3 text-sm outline-none;
+    color: var(--eb-text);
+    background: var(--eb-surface);
+    border: 1px solid var(--eb-border-strong);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .eb-input::placeholder { color: var(--eb-text-faint); }
+  .eb-input:focus {
+    border-color: var(--eb-blue);
+    box-shadow: 0 0 0 3px rgba(15, 98, 254, 0.12);
+  }
+  .eb-input:disabled {
+    @apply cursor-not-allowed;
+    background: var(--eb-surface-muted);
+    color: var(--eb-text-muted);
+  }
+  .eb-input option { background: #fff; color: var(--eb-text); }
+
+  /* ── Primary CTA button — brand blue ─────────────────────────────────── */
+  .eb-btn {
+    @apply w-full py-3.5 rounded-xl text-sm font-semibold tracking-wide
+           transition-all duration-150 flex items-center justify-center gap-2
+           disabled:opacity-60 disabled:cursor-not-allowed;
+    background: var(--eb-blue);
+    color: #fff;
+  }
+  .eb-btn:not(:disabled):hover { background: var(--eb-blue-dark); }
+  .eb-btn:not(:disabled):active { transform: scale(0.99); }
+
+  /* ── Secondary / outline button ──────────────────────────────────────── */
+  .eb-btn-outline {
+    @apply w-full py-3.5 rounded-xl text-sm font-semibold tracking-wide
+           transition-all duration-150 flex items-center justify-center gap-2;
+    background: transparent;
+    border: 1px solid var(--eb-border-strong);
+    color: var(--eb-text);
+  }
+  .eb-btn-outline:hover { background: var(--eb-surface-muted); border-color: var(--eb-blue); }
+
+  /* ── Large hero CTA ───────────────────────────────────────────────────── */
+  .eb-btn-hero {
+    @apply w-full py-4 rounded-xl text-base font-bold tracking-wide
+           transition-all duration-150 flex items-center justify-center gap-3 no-underline;
+    background: var(--eb-blue);
+    color: #fff;
+  }
+  .eb-btn-hero:hover { background: var(--eb-blue-dark); }
+  .eb-btn-hero:active { transform: scale(0.99); }
+
+  /* ── Field label ──────────────────────────────────────────────────────── */
+  .eb-label {
+    @apply block text-xs font-semibold mb-1.5 tracking-wide uppercase;
+    color: var(--eb-text-muted);
+  }
+
+  /* ── Inline error message ────────────────────────────────────────────── */
+  .eb-error {
+    @apply text-xs mt-1.5 flex items-center gap-1;
+    color: var(--eb-danger);
+  }
+
+  /* ── Toggle link (Login ↔ Register) ──────────────────────────────────── */
+  .eb-toggle-link {
+    @apply text-xs text-center mt-5 cursor-pointer select-none;
+    color: var(--eb-text-muted);
+  }
+  .eb-toggle-link span {
+    @apply font-semibold underline underline-offset-2 cursor-pointer transition-colors duration-150;
+    color: var(--eb-blue);
+  }
+  .eb-toggle-link span:hover { color: var(--eb-blue-dark); }
+
+  /* ── Step / progress dots ────────────────────────────────────────────── */
+  .eb-dot {
+    @apply w-2.5 h-2.5 rounded-full transition-all duration-300;
+    background: var(--eb-border-strong);
+  }
+  .eb-dot.active {
+    background: var(--eb-blue);
+    transform: scale(1.35);
+  }
+  .eb-dot.done { background: var(--eb-orange); }
+
+  /* ── Info chip ───────────────────────────────────────────────────────── */
+  .eb-chip {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium;
+    background: var(--eb-blue-soft);
+    border: 1px solid rgba(15, 98, 254, 0.18);
+    color: var(--eb-blue-dark);
+  }
+
+  /* ── Stat card ────────────────────────────────────────────────────────── */
+  .eb-stat-card {
+    @apply rounded-xl p-3 text-center;
+    background: var(--eb-surface-muted);
+    border: 1px solid var(--eb-border);
+  }
+
+  /* ── Status badges ────────────────────────────────────────────────────── */
+  .eb-badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold;
+  }
+  .eb-badge-success { background: var(--eb-success-soft); color: var(--eb-success); }
+  .eb-badge-warning  { background: var(--eb-warning-soft); color: var(--eb-warning); }
+  .eb-badge-danger   { background: var(--eb-danger-soft); color: var(--eb-danger); }
+  .eb-badge-neutral  { background: var(--eb-surface-muted); color: var(--eb-text-muted); }
+
+  /* ── Section divider label ───────────────────────────────────────────── */
+  .eb-section-label { @apply flex items-center gap-2 pt-1; }
+  .eb-section-label .line { height: 1px; flex: 1; background: var(--eb-border); }
+  .eb-section-label span {
+    @apply text-[10px] font-semibold tracking-widest uppercase;
+    color: var(--eb-text-faint);
+  }
+}
+
+/* ─── Custom animations & utilities ──────────────────────────────────────── */
+@layer utilities {
+  .success-pop {
+    animation: successPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both 0.05s;
+  }
+  @keyframes successPop {
+    from { transform: scale(0.4); opacity: 0; }
+    to   { transform: scale(1);   opacity: 1; }
+  }
+
+  .animate-fade-up {
+    animation: fadeUp 0.35s ease both;
+  }
+  @keyframes fadeUp {
+    from { transform: translateY(8px); opacity: 0; }
+    to   { transform: translateY(0);   opacity: 1; }
+  }
+
+  .spinner {
+    @apply w-5 h-5 rounded-full border-2 animate-spin;
+    border-color: rgba(255,255,255,0.35);
+    border-top-color: #fff;
+  }
+  .spinner-dark {
+    @apply w-5 h-5 rounded-full border-2 animate-spin;
+    border-color: var(--eb-border);
+    border-top-color: var(--eb-blue);
+  }
+
+  .animate-slide-in {
+    animation: slideInRight 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  @keyframes slideInRight {
+    from { transform: translateX(100%); opacity: 0; }
+    to   { transform: translateX(0);    opacity: 1; }
+  }
+}
