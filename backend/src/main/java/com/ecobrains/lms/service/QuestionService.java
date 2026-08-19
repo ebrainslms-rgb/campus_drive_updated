@@ -8,6 +8,7 @@ import com.ecobrains.lms.exception.ApiException;
 import com.ecobrains.lms.repository.AdminLogRepository;
 import com.ecobrains.lms.repository.CourseRepository;
 import com.ecobrains.lms.repository.QuestionRepository;
+import com.ecobrains.lms.repository.StudentAnswerRepository;
 import com.ecobrains.lms.security.CurrentUser;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
@@ -33,12 +34,14 @@ public class QuestionService {
     private final QuestionRepository questionRepository;
     private final CourseRepository courseRepository;
     private final AdminLogRepository adminLogRepository;
+    private final StudentAnswerRepository studentAnswerRepository;
 
     public QuestionService(QuestionRepository questionRepository, CourseRepository courseRepository,
-                            AdminLogRepository adminLogRepository) {
+                            AdminLogRepository adminLogRepository, StudentAnswerRepository studentAnswerRepository) {
         this.questionRepository = questionRepository;
         this.courseRepository = courseRepository;
         this.adminLogRepository = adminLogRepository;
+        this.studentAnswerRepository = studentAnswerRepository;
     }
 
     @Transactional
@@ -48,6 +51,21 @@ public class QuestionService {
         Course course = courseRepository.findById(courseId)
                 .orElseThrow(() -> ApiException.badRequest("Selected course is inactive or not found."));
         if (!course.isActive()) throw ApiException.badRequest("Cannot upload questions: selected course is inactive.");
+
+        // Checked BEFORE attempting the delete below - if any student has
+        // already started an exam on this course, their StudentAnswer rows
+        // still reference the current Question rows (pre-created at exam
+        // start, whether answered yet or not), and the database would
+        // correctly refuse to delete those Questions. Catching this here
+        // gives an accurate, specific error instead of letting the delete
+        // fail on the raw foreign-key constraint and surfacing the generic
+        // "A record with this value already exists" message.
+        if (studentAnswerRepository.existsByQuestion_Course_Id(courseId)) {
+            throw ApiException.conflict(
+                    "Cannot replace questions for \"" + course.getName() + "\": one or more students have already " +
+                    "started an exam using the current question set. Replacing questions now would break their exam records."
+            );
+        }
 
         questionRepository.deleteByCourseId(courseId);
 

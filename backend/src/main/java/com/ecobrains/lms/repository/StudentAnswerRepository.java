@@ -10,6 +10,16 @@ import java.util.List;
 public interface StudentAnswerRepository extends JpaRepository<StudentAnswer, Long> {
     List<StudentAnswer> findByStudentIdOrderByOrderIndexAsc(Long studentId);
 
+    /** True if any student has an answer row (answered or not - rows are
+     *  pre-created at exam start) pointing at a question belonging to this
+     *  course. Used by QuestionService.upload() to give a clear, accurate
+     *  error BEFORE attempting to delete the course's question set, instead
+     *  of letting the delete fail on the database's own foreign-key
+     *  constraint and surfacing the generic, misleading
+     *  "A record with this value already exists" message that the global
+     *  exception handler shows for any DataIntegrityViolationException. */
+    boolean existsByQuestion_Course_Id(Long courseId);
+
     /** Batched paper-size lookup for a page of students - avoids one query per row. */
     @Query("SELECT a.student.id AS studentId, COUNT(a) AS paperSize FROM StudentAnswer a WHERE a.student.id IN :studentIds GROUP BY a.student.id")
     List<PaperSizeRow> paperSizesFor(@Param("studentIds") List<Long> studentIds);
