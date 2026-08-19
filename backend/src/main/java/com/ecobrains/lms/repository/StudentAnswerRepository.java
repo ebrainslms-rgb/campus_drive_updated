@@ -2,6 +2,7 @@ package com.ecobrains.lms.repository;
 
 import com.ecobrains.lms.entity.StudentAnswer;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -10,15 +11,28 @@ import java.util.List;
 public interface StudentAnswerRepository extends JpaRepository<StudentAnswer, Long> {
     List<StudentAnswer> findByStudentIdOrderByOrderIndexAsc(Long studentId);
 
-    /** True if any student has an answer row (answered or not - rows are
-     *  pre-created at exam start) pointing at a question belonging to this
-     *  course. Used by QuestionService.upload() to give a clear, accurate
-     *  error BEFORE attempting to delete the course's question set, instead
-     *  of letting the delete fail on the database's own foreign-key
-     *  constraint and surfacing the generic, misleading
-     *  "A record with this value already exists" message that the global
-     *  exception handler shows for any DataIntegrityViolationException. */
-    boolean existsByQuestion_Course_Id(Long courseId);
+    /** True only if a student is genuinely mid-exam RIGHT NOW on this course
+     *  (started, not yet submitted) - their answers aren't final yet and
+     *  still need the current Question rows to exist. Used by
+     *  QuestionService.upload() to block a replace only while a drive is
+     *  actually live, not forever after it finishes. */
+    @Query("SELECT COUNT(a) > 0 FROM StudentAnswer a WHERE a.question.course.id = :courseId " +
+           "AND a.student.examStarted = true AND a.student.examSubmitted = false")
+    boolean existsLiveExamForCourse(@Param("courseId") Long courseId);
+
+    /** Clears the per-question answer trail for a course once no live exam
+     *  remains (see existsLiveExamForCourse) - any StudentAnswer rows still
+     *  present at that point belong only to already-completed students.
+     *  Their score and registration data live on the Student row itself and
+     *  are completely unaffected by this; only the specific "which option
+     *  did they pick for question N" detail is cleared, which is no longer
+     *  needed once an exam is scored and submitted. This is what unblocks
+     *  the Question replace below, which would otherwise fail on the
+     *  database's own foreign-key constraint. */
+    @Modifying
+    @Query("DELETE FROM StudentAnswer a WHERE a.question.id IN " +
+           "(SELECT q.id FROM Question q WHERE q.course.id = :courseId)")
+    void deleteByQuestion_Course_Id(@Param("courseId") Long courseId);
 
     /** Batched paper-size lookup for a page of students - avoids one query per row. */
     @Query("SELECT a.student.id AS studentId, COUNT(a) AS paperSize FROM StudentAnswer a WHERE a.student.id IN :studentIds GROUP BY a.student.id")

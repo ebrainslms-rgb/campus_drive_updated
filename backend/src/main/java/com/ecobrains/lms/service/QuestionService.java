@@ -6,6 +6,7 @@ import com.ecobrains.lms.dto.response.UploadHistoryEntryResponse;
 import com.ecobrains.lms.entity.*;
 import com.ecobrains.lms.exception.ApiException;
 import com.ecobrains.lms.repository.AdminLogRepository;
+import com.ecobrains.lms.repository.ActivityLogRepository;
 import com.ecobrains.lms.repository.CourseRepository;
 import com.ecobrains.lms.repository.QuestionRepository;
 import com.ecobrains.lms.repository.StudentAnswerRepository;
@@ -35,13 +36,16 @@ public class QuestionService {
     private final CourseRepository courseRepository;
     private final AdminLogRepository adminLogRepository;
     private final StudentAnswerRepository studentAnswerRepository;
+    private final ActivityLogRepository activityLogRepository;
 
     public QuestionService(QuestionRepository questionRepository, CourseRepository courseRepository,
-                            AdminLogRepository adminLogRepository, StudentAnswerRepository studentAnswerRepository) {
+                            AdminLogRepository adminLogRepository, StudentAnswerRepository studentAnswerRepository,
+                            ActivityLogRepository activityLogRepository) {
         this.questionRepository = questionRepository;
         this.courseRepository = courseRepository;
         this.adminLogRepository = adminLogRepository;
         this.studentAnswerRepository = studentAnswerRepository;
+        this.activityLogRepository = activityLogRepository;
     }
 
     @Transactional
@@ -52,20 +56,30 @@ public class QuestionService {
                 .orElseThrow(() -> ApiException.badRequest("Selected course is inactive or not found."));
         if (!course.isActive()) throw ApiException.badRequest("Cannot upload questions: selected course is inactive.");
 
-        // Checked BEFORE attempting the delete below - if any student has
-        // already started an exam on this course, their StudentAnswer rows
-        // still reference the current Question rows (pre-created at exam
-        // start, whether answered yet or not), and the database would
-        // correctly refuse to delete those Questions. Catching this here
-        // gives an accurate, specific error instead of letting the delete
-        // fail on the raw foreign-key constraint and surfacing the generic
-        // "A record with this value already exists" message.
-        if (studentAnswerRepository.existsByQuestion_Course_Id(courseId)) {
+        // Block ONLY while a student is genuinely mid-exam right now on this
+        // course (started, not yet submitted) - their answers aren't final
+        // yet and still need the current Question rows to exist.
+        if (studentAnswerRepository.existsLiveExamForCourse(courseId)) {
             throw ApiException.conflict(
-                    "Cannot replace questions for \"" + course.getName() + "\": one or more students have already " +
-                    "started an exam using the current question set. Replacing questions now would break their exam records."
+                    "Cannot replace questions for \"" + course.getName() + "\": a student is currently taking an " +
+                    "exam using the current question set. Please wait until the drive finishes."
             );
         }
+
+        // No live exam remains, so any StudentAnswer rows still present at
+        // this point belong only to already-completed students. Their score
+        // and registration data live on the Student row itself and are
+        // completely unaffected by this - only the specific per-question
+        // answer trail is cleared.
+        studentAnswerRepository.deleteByQuestion_Course_Id(courseId);
+
+        // ActivityLog also has a foreign key to Question (separate from
+        // StudentAnswer) - clearing StudentAnswer alone was NOT enough, the
+        // delete below would still fail on this second reference. Rows are
+        // only nulled here, never deleted - SubmissionInfoResolver depends
+        // on these ActivityLog rows surviving for the Drive Details
+        // submission-time/type feature, which doesn't need question_id at all.
+        activityLogRepository.clearQuestionReferencesForCourse(courseId);
 
         questionRepository.deleteByCourseId(courseId);
 

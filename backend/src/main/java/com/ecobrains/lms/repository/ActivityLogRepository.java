@@ -3,12 +3,29 @@ package com.ecobrains.lms.repository;
 import com.ecobrains.lms.entity.ActivityEventType;
 import com.ecobrains.lms.entity.ActivityLog;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 
 public interface ActivityLogRepository extends JpaRepository<ActivityLog, Long> {
+
+    /**
+     * Clears the dangling question reference on ActivityLog rows for a
+     * course being re-uploaded, WITHOUT deleting the rows themselves -
+     * SubmissionInfoResolver depends on these rows surviving (they carry
+     * the submission time/type shown in Drive Details), so only the
+     * question_id column (nullable) is nulled out here, same principle as
+     * StudentAnswerRepository.deleteByQuestion_Course_Id but non-destructive,
+     * since this table's rows are still needed after an exam finishes,
+     * unlike StudentAnswer's per-question detail. This is what was still
+     * blocking the Question delete after the StudentAnswer cleanup alone.
+     */
+    @Modifying
+    @Query("UPDATE ActivityLog a SET a.question = NULL WHERE a.question.id IN " +
+           "(SELECT q.id FROM Question q WHERE q.course.id = :courseId)")
+    void clearQuestionReferencesForCourse(@Param("courseId") Long courseId);
 
     /**
      * One batched query for a whole page of students' submission events -
