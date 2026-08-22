@@ -38,6 +38,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/admin/colleges/public").permitAll()
                         .requestMatchers("/api/admin/courses/public").permitAll()
                         .requestMatchers("/api/admin/banners/public/**").permitAll()
+                        .requestMatchers("/api/admin/site-content/public").permitAll()
+                        .requestMatchers("/api/admin/dropdown-options/public").permitAll()
+                        .requestMatchers("/api/admin/exam-settings/public").permitAll()
                         .requestMatchers("/api/student/auth/register", "/api/student/auth/login", "/api/student/auth/exam-lookup").permitAll()
                         .requestMatchers("/actuator/health").permitAll()
                         // Admin-only

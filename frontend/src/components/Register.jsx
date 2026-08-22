@@ -21,21 +21,41 @@ import api from "../utils/api";
 import { stateToCode } from "../utils/stateCodes";
 import { useTheme } from "../context/ThemeContext";
 import ThemeToggle from "./shared/ThemeToggle.jsx";
-import { authPromoHighlights } from "../content/promoContent";
 
 /* ============================================================
-   STATIC OPTIONS
+   DYNAMIC OPTIONS - admin-managed via Profile -> Edit Registration Page
+   Data. Falls back to these exact original values if the admin hasn't
+   customised a given list yet, or if the request fails - registration
+   must never be blocked by this fetch not working.
 ============================================================ */
 
-const DOMAINS = ["CSE & CSE Allied Branches", "ECE", "ISE", "AI/ML", "EEE"];
-const QUALIFICATIONS = ["B.E/B.Tech", "M.E/M.Tech", "MCA"];
-// Dynamic - current year minus 1 through current year plus 2, computed from
-// the actual system date, not a hardcoded list that goes stale every year.
-// "Other" lets a student type a year outside this range, but never earlier
-// than last year (enforced in validate() below).
+const FALLBACK_DOMAINS = ["CSE & CSE Allied Branches", "ECE", "ISE", "AI/ML", "EEE"];
+const FALLBACK_QUALIFICATIONS = ["B.E/B.Tech", "M.E/M.Tech", "MCA"];
 const CURRENT_YEAR = new Date().getFullYear();
-const YEARS = [CURRENT_YEAR - 1, CURRENT_YEAR, CURRENT_YEAR + 1, CURRENT_YEAR + 2].map(String);
-const YEAR_OPTIONS = [...YEARS, "Other"];
+const FALLBACK_YEARS = [CURRENT_YEAR - 1, CURRENT_YEAR, CURRENT_YEAR + 1, CURRENT_YEAR + 2].map(String);
+
+function useDropdownOptions() {
+  const [options, setOptions] = useState({
+    DOMAIN: FALLBACK_DOMAINS,
+    QUALIFICATION: FALLBACK_QUALIFICATIONS,
+    YEAR_OF_PASSING: FALLBACK_YEARS,
+  });
+  useEffect(() => {
+    let cancelled = false;
+    api.get("/admin/dropdown-options/public")
+      .then(res => {
+        if (cancelled || !res.data) return;
+        setOptions({
+          DOMAIN: res.data.DOMAIN?.length ? res.data.DOMAIN : FALLBACK_DOMAINS,
+          QUALIFICATION: res.data.QUALIFICATION?.length ? res.data.QUALIFICATION : FALLBACK_QUALIFICATIONS,
+          YEAR_OF_PASSING: res.data.YEAR_OF_PASSING?.length ? res.data.YEAR_OF_PASSING : FALLBACK_YEARS,
+        });
+      })
+      .catch(() => { /* keep fallbacks on any failure */ });
+    return () => { cancelled = true; };
+  }, []);
+  return options;
+}
 
 /* ============================================================
    STYLES
@@ -401,7 +421,36 @@ function CollegeAutocomplete({ colleges, value, onChange, onSelect, error, disab
    BRAND PANEL
 ============================================================ */
 
+function useSiteContent() {
+  const FALLBACK = {
+    BRAND_TITLE: "Assessment Portal",
+    BRAND_SUBTITLE: "Your path to placement starts here",
+    FEATURE_1_TITLE: "Java Full Stack Training",
+    FEATURE_1_DESC: "Industry-aligned curriculum covering Core Java, Spring Boot, React and MySQL.",
+    FEATURE_2_TITLE: "Campus Placement Drives",
+    FEATURE_2_DESC: "Regular examination drives conducted across partner engineering colleges.",
+    FEATURE_3_TITLE: "Hands-on Assessment",
+    FEATURE_3_DESC: "Structured aptitude, logical, frontend and programming evaluation.",
+  };
+  const [content, setContent] = useState(FALLBACK);
+  useEffect(() => {
+    let cancelled = false;
+    api.get("/admin/site-content/public")
+      .then(res => { if (!cancelled && res.data) setContent({ ...FALLBACK, ...res.data }); })
+      .catch(() => { /* keep fallback on any failure */ });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return content;
+}
+
 function BrandPanel() {
+  const content = useSiteContent();
+  const features = [
+    { title: content.FEATURE_1_TITLE, description: content.FEATURE_1_DESC },
+    { title: content.FEATURE_2_TITLE, description: content.FEATURE_2_DESC },
+    { title: content.FEATURE_3_TITLE, description: content.FEATURE_3_DESC },
+  ];
   return (
     <section className="eb-register-brand-side eb-slide-right">
       <div className="eb-register-brand-glow" />
@@ -409,11 +458,11 @@ function BrandPanel() {
 
       <div className="eb-register-brand-content">
         <img src="/logo.png" alt="EchoBrains" className="eb-register-logo" draggable={false} />
-        <h1 className="eb-register-brand-title">Assessment Portal</h1>
-        <p className="eb-register-brand-subtitle">Your path to placement starts here</p>
+        <h1 className="eb-register-brand-title">{content.BRAND_TITLE}</h1>
+        <p className="eb-register-brand-subtitle">{content.BRAND_SUBTITLE}</p>
 
         <div className="eb-register-feature-list">
-          {authPromoHighlights.slice(0, 3).map((item, index) => (
+          {features.map((item, index) => (
             <div className="eb-register-feature" key={index}>
               <div className="eb-register-feature-icon">
                 <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8">
@@ -450,6 +499,10 @@ export default function Register() {
   const navigate = useNavigate();
   const activeCourses = useCourses();
   const colleges = useColleges();
+  const dropdownOptions = useDropdownOptions();
+  const yearOptions = [...dropdownOptions.YEAR_OF_PASSING, "Other"];
+  const domainOptions = [...dropdownOptions.DOMAIN, "Other"];
+  const qualificationOptions = [...dropdownOptions.QUALIFICATION, "Other"];
 
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
@@ -463,6 +516,8 @@ export default function Register() {
 
   const [selectedCollege, setSelectedCollege] = useState(null);
   const [customYear, setCustomYear] = useState(""); // used only when yearOfPassing === "Other"
+  const [customDomain, setCustomDomain] = useState(""); // used only when domain === "Other"
+  const [customQualification, setCustomQualification] = useState(""); // used only when qualification === "Other"
   const [errors, setErrors] = useState({});
   const [apiError, setApiError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -515,7 +570,9 @@ export default function Register() {
     if (!form.district.trim()) validationErrors.district = "Please select a valid college from the list.";
     if (!form.state.trim()) validationErrors.state = "Please select a valid college from the list.";
     if (!form.domain) validationErrors.domain = "Please select your domain / branch.";
+    else if (form.domain === "Other" && !customDomain.trim()) validationErrors.domain = "Please enter your domain / branch.";
     if (!form.qualification) validationErrors.qualification = "Please select your qualification.";
+    else if (form.qualification === "Other" && !customQualification.trim()) validationErrors.qualification = "Please enter your qualification.";
     if (form.aggregate === "") validationErrors.aggregate = "Aggregate percentage is required.";
     else if (isNaN(form.aggregate) || Number(form.aggregate) < 0 || Number(form.aggregate) > 100) validationErrors.aggregate = "Enter a value between 0 and 100.";
     if (!form.yearOfPassing) validationErrors.yearOfPassing = "Please select year of passing.";
@@ -549,8 +606,8 @@ export default function Register() {
         collegeName: form.collegeName.trim(),
         location: form.district.trim(),
         state: form.state.trim(),
-        branch: form.domain,
-        highestQualification: form.qualification,
+        branch: form.domain === "Other" ? customDomain.trim() : form.domain,
+        highestQualification: form.qualification === "Other" ? customQualification.trim() : form.qualification,
         aggregateMarks: parseFloat(form.aggregate),
         yearOfPassing: parseInt(form.yearOfPassing === "Other" ? customYear : form.yearOfPassing, 10),
         courseName: form.course,
@@ -662,12 +719,30 @@ export default function Register() {
                   )}
 
                   <DropField label="Domain / Branch" icon={<IconBranch />} error={errors.domain}
-                    value={form.domain} onChange={(e) => set("domain", e.target.value)}
-                    disabled={loading} placeholder="Select branch" options={DOMAINS} />
+                    value={form.domain} onChange={(e) => { set("domain", e.target.value); if (e.target.value !== "Other") setCustomDomain(""); }}
+                    disabled={loading} placeholder="Select branch" options={domainOptions} />
+
+                  {form.domain === "Other" && (
+                    <Field label="Enter Domain / Branch" icon={<IconBranch />} error={null}>
+                      <input type="text" value={customDomain} disabled={loading}
+                        placeholder="e.g. Mechanical Engineering"
+                        className="eb-register-input"
+                        onChange={(e) => { setCustomDomain(e.target.value); setErrors((p) => ({ ...p, domain: "" })); }} />
+                    </Field>
+                  )}
 
                   <DropField label="Highest Qualification" icon={<IconGraduate />} error={errors.qualification}
-                    value={form.qualification} onChange={(e) => set("qualification", e.target.value)}
-                    disabled={loading} placeholder="Select qualification" options={QUALIFICATIONS} />
+                    value={form.qualification} onChange={(e) => { set("qualification", e.target.value); if (e.target.value !== "Other") setCustomQualification(""); }}
+                    disabled={loading} placeholder="Select qualification" options={qualificationOptions} />
+
+                  {form.qualification === "Other" && (
+                    <Field label="Enter Qualification" icon={<IconGraduate />} error={null}>
+                      <input type="text" value={customQualification} disabled={loading}
+                        placeholder="e.g. Diploma"
+                        className="eb-register-input"
+                        onChange={(e) => { setCustomQualification(e.target.value); setErrors((p) => ({ ...p, qualification: "" })); }} />
+                    </Field>
+                  )}
 
                   <Field label="Aggregate %" icon={<IconPercent />} error={errors.aggregate}>
                     <input type="number" min="0" max="100" step="0.01" value={form.aggregate} disabled={loading}
@@ -677,7 +752,7 @@ export default function Register() {
 
                   <DropField label="Year of Passing" icon={<IconCalendar />} error={errors.yearOfPassing}
                     value={form.yearOfPassing} onChange={(e) => { set("yearOfPassing", e.target.value); if (e.target.value !== "Other") setCustomYear(""); }}
-                    disabled={loading} placeholder="Select year" options={YEAR_OPTIONS} />
+                    disabled={loading} placeholder="Select year" options={yearOptions} />
 
                   {form.yearOfPassing === "Other" && (
                     <Field label="Enter Year" icon={<IconCalendar />} error={null}>

@@ -34,7 +34,6 @@ import { stateToCode } from "../utils/stateCodes";
 import { useStudentAuth } from "../context/StudentAuthContext";
 import { useTheme } from "../context/ThemeContext";
 import ThemeToggle from "./shared/ThemeToggle.jsx";
-import { authPromoHighlights } from "../content/promoContent";
 
 /* ============================================================
    ICONS
@@ -344,7 +343,36 @@ const loginStyles = `
    BRAND PANEL
 ============================================================ */
 
+function useSiteContent() {
+  const FALLBACK = {
+    BRAND_TITLE: "Assessment Portal",
+    BRAND_SUBTITLE: "Your path to placement starts here",
+    FEATURE_1_TITLE: "Java Full Stack Training",
+    FEATURE_1_DESC: "Industry-aligned curriculum covering Core Java, Spring Boot, React and MySQL.",
+    FEATURE_2_TITLE: "Campus Placement Drives",
+    FEATURE_2_DESC: "Regular examination drives conducted across partner engineering colleges.",
+    FEATURE_3_TITLE: "Hands-on Assessment",
+    FEATURE_3_DESC: "Structured aptitude, logical, frontend and programming evaluation.",
+  };
+  const [content, setContent] = useState(FALLBACK);
+  useEffect(() => {
+    let cancelled = false;
+    api.get("/admin/site-content/public")
+      .then(res => { if (!cancelled && res.data) setContent({ ...FALLBACK, ...res.data }); })
+      .catch(() => { /* keep fallback on any failure */ });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return content;
+}
+
 function BrandPanel() {
+  const content = useSiteContent();
+  const features = [
+    { title: content.FEATURE_1_TITLE, description: content.FEATURE_1_DESC },
+    { title: content.FEATURE_2_TITLE, description: content.FEATURE_2_DESC },
+    { title: content.FEATURE_3_TITLE, description: content.FEATURE_3_DESC },
+  ];
   return (
     <section className="eb-brand-side eb-slide-left">
       <div className="eb-brand-glow" />
@@ -352,11 +380,11 @@ function BrandPanel() {
 
       <div className="eb-brand-content">
         <img src="/logo.png" alt="EchoBrains" className="eb-logo" draggable={false} />
-        <h1 className="eb-brand-title">Assessment Portal</h1>
-        <p className="eb-brand-subtitle">Your path to placement starts here</p>
+        <h1 className="eb-brand-title">{content.BRAND_TITLE}</h1>
+        <p className="eb-brand-subtitle">{content.BRAND_SUBTITLE}</p>
 
         <div className="eb-feature-list">
-          {authPromoHighlights.slice(0, 3).map((item, index) => (
+          {features.map((item, index) => (
             <div className="eb-feature" key={index}>
               <div className="eb-feature-icon">
                 <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8">

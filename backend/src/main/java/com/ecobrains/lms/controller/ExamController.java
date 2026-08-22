@@ -1,5 +1,6 @@
 package com.ecobrains.lms.controller;
 
+import com.ecobrains.lms.dto.request.RescheduleExamRequest;
 import com.ecobrains.lms.dto.request.ScheduleExamRequest;
 import com.ecobrains.lms.dto.response.DriveSummaryResponse;
 import com.ecobrains.lms.dto.response.ExamResponse;
@@ -40,7 +41,7 @@ public class ExamController {
      * or the frontend) that this is rejected once the exam is locked or completed.
      */
     @PutMapping("/{id}")
-    public ResponseEntity<ExamResponse> update(@PathVariable Long id, @Valid @RequestBody ScheduleExamRequest request) {
+    public ResponseEntity<ExamResponse> update(@PathVariable Long id, @Valid @RequestBody RescheduleExamRequest request) {
         return ResponseEntity.ok(examService.update(id, request));
     }
 

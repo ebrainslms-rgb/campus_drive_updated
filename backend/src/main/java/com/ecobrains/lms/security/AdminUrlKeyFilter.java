@@ -43,7 +43,10 @@ public class AdminUrlKeyFilter extends OncePerRequestFilter {
         // registration/login/rules pages), mirroring the original Express router where
         // adminAuth was only wired in *after* the /public sub-route.
         boolean isPublicLookup = path.equals("/api/admin/colleges/public") || path.equals("/api/admin/courses/public")
-                || path.startsWith("/api/admin/banners/public/");
+                || path.startsWith("/api/admin/banners/public/")
+                || path.equals("/api/admin/site-content/public")
+                || path.equals("/api/admin/dropdown-options/public")
+                || path.equals("/api/admin/exam-settings/public");
 
         if (isAdminApi && !isLogin && !isConfig && !isPublicLookup) {
             String provided = request.getHeader("x-admin-url-key");

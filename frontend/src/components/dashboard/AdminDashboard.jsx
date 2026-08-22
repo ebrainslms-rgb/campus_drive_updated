@@ -13,6 +13,8 @@ import AllDrives from './AllDrives.jsx';
 import AllDrivesGlobal from './AllDrivesGlobal.jsx';
 import DriveDetails from './DriveDetails.jsx';
 import AdminBanners from './AdminBanners.jsx';
+import AdminRegistrationContent from './AdminRegistrationContent.jsx';
+import AdminExamSettings from './AdminExamSettings.jsx';
 import StudentDetails from './StudentDetails.jsx';
 
 const NAV_ITEMS = [
@@ -73,12 +75,17 @@ export default function AdminDashboard() {
 
   // .includes (not .endsWith) so drill-down routes like /colleges/123/drives/45
   // still correctly show "Colleges" as the current section in the header.
-  // "banners" is intentionally NOT in NAV_ITEMS (reachable only via the
-  // Profile drawer, not the sidebar) - special-cased here just for the
-  // header label, so it doesn't fall back to showing "Overview" while
-  // actually on the Banners page.
+  // "banners", "registration-content", and "exam-settings" are
+  // intentionally NOT in NAV_ITEMS (reachable only via the Profile
+  // drawer, not the sidebar) - special-cased here just for the header
+  // label, so none of them falls back to showing "Overview" while
+  // actually on that page.
   const currentTab = location.pathname.includes('/banners')
     ? 'Exam Banners'
+    : location.pathname.includes('/registration-content')
+    ? 'Registration Page Content'
+    : location.pathname.includes('/exam-settings')
+    ? 'Exam Settings'
     : NAV_ITEMS.find(i => location.pathname.includes(`/${i.id}`))?.label || 'Overview';
   
 const TAB_SUBTITLES = {
@@ -158,6 +165,8 @@ const currentSubtitle = NAV_ITEMS.find(i => location.pathname.includes(`/${i.id}
         ]}
         extraLinks={[
           { label: 'Edit Exam Banners', onClick: () => { setProfileOpen(false); navigate(`/${adminKey}/admin/banners`); } },
+          { label: 'Edit Registration Page Data', onClick: () => { setProfileOpen(false); navigate(`/${adminKey}/admin/registration-content`); } },
+          { label: 'Exam Settings', onClick: () => { setProfileOpen(false); navigate(`/${adminKey}/admin/exam-settings`); } },
         ]}
         onLogout={logoutAdmin}
       />
@@ -174,6 +183,8 @@ const currentSubtitle = NAV_ITEMS.find(i => location.pathname.includes(`/${i.id}
               <Route path="drives" element={<AllDrivesGlobal />} />
               <Route path="drives/:driveId" element={<DriveDetails />} />
               <Route path="banners" element={<AdminBanners />} />
+              <Route path="registration-content" element={<AdminRegistrationContent />} />
+              <Route path="exam-settings" element={<AdminExamSettings />} />
               <Route path="students/:studentId" element={<StudentDetails />} />
               <Route path="courses" element={<CoursesView />} />
               <Route path="exams" element={<ExamsView />} />

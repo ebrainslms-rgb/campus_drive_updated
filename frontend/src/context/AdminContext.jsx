@@ -9,7 +9,7 @@ export const useAdminAuth = () => useContext(AdminContext);
  * The URL path is the single source of truth — .env ADMIN_URL_KEY on the
  * backend must match the segment in the URL the admin actually visited.
  */
-export const getAdminUrlKeyFromPath = () => {
+const getAdminUrlKeyFromPath = () => {
   const segs = window.location.pathname.split('/').filter(Boolean);
   if (segs.length >= 2 && segs[1] === 'admin') return segs[0];
   return null;
@@ -30,8 +30,32 @@ const decodeAdminEmail = (token) => {
   }
 };
 
+// JWTs carry their own expiry (the "exp" claim, seconds since epoch). This
+// checks it directly, client-side, the moment a token is read from
+// storage - so a stale token gets rejected immediately on page load,
+// rather than waiting for an API call to fail with 401 first (by which
+// point the dashboard shell has already rendered as if logged in).
+const isTokenExpired = (token) => {
+  try {
+    const payload = token.split('.')[1];
+    const json = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
+    if (!json.exp) return true; // no expiry claim at all - treat as invalid
+    return Date.now() >= json.exp * 1000;
+  } catch {
+    return true; // unparseable token - treat as invalid
+  }
+};
+
 export const AdminProvider = ({ children }) => {
-  const [adminToken, setAdminToken] = useState(localStorage.getItem('adminToken') || null);  const [adminUrlKey, setAdminUrlKey] = useState(() => {
+  const [adminToken, setAdminToken] = useState(() => {
+    const stored = localStorage.getItem('adminToken');
+    if (stored && isTokenExpired(stored)) {
+      localStorage.removeItem('adminToken'); // clear it immediately, don't leave a stale token sitting in storage
+      return null;
+    }
+    return stored || null;
+  });
+  const [adminUrlKey, setAdminUrlKey] = useState(() => {
     // Prefer the key from the URL the user is on; fall back to storage.
     const pathKey = getAdminUrlKeyFromPath();
     if (pathKey) {

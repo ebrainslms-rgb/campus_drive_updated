@@ -1,6 +1,6 @@
 package com.ecobrains.lms.service;
 
-import com.ecobrains.lms.dto.request.SaveProgressRequest;
+import com.ecobrains.lms.dto.request.SaveProgressBatchRequest;
 import com.ecobrains.lms.dto.response.*;
 import com.ecobrains.lms.entity.*;
 import com.ecobrains.lms.exception.ApiException;
@@ -131,7 +131,7 @@ public class StudentExamService {
     }
 
     @Transactional
-    public Map<String, Object> saveProgress(Long studentId, SaveProgressRequest req, HttpServletRequest httpRequest) {
+    public Map<String, Object> saveProgress(Long studentId, SaveProgressBatchRequest req, HttpServletRequest httpRequest) {
         Student student = getStudent(studentId);
         requireNotSubmitted(student);
 
@@ -140,27 +140,41 @@ public class StudentExamService {
             throw ApiException.forbidden(autoSubmit.message());
         }
 
-        if (req.questionId() != null) {
-            StudentAnswer answer = studentAnswerRepository.findByStudentIdOrderByOrderIndexAsc(student.getId())
-                    .stream().filter(a -> a.getQuestion().getId().equals(req.questionId())).findFirst()
-                    .orElse(null);
-            if (answer != null) {
-                if (req.selectedOptionIndex() != null) {
-                    answer.setSelectedOption(AnswerOption.fromIndex(req.selectedOptionIndex()));
+        List<SaveProgressBatchRequest.AnswerEntry> incoming = req.answers() != null ? req.answers() : List.of();
+        if (!incoming.isEmpty()) {
+            // ONE load of the student's full answer list, not one per
+            // question - this was previously happening once for EACH of
+            // the 5 questions on a page (5 full-list loads just to update
+            // 5 individual rows). Built into a map for O(1) lookup below.
+            Map<Long, StudentAnswer> byQuestionId = studentAnswerRepository
+                    .findByStudentIdOrderByOrderIndexAsc(student.getId()).stream()
+                    .collect(Collectors.toMap(a -> a.getQuestion().getId(), a -> a));
+
+            List<StudentAnswer> toSave = new ArrayList<>();
+            for (SaveProgressBatchRequest.AnswerEntry entry : incoming) {
+                StudentAnswer answer = byQuestionId.get(entry.questionId());
+                if (answer == null) continue;
+                if (entry.selectedOptionIndex() != null) {
+                    answer.setSelectedOption(AnswerOption.fromIndex(entry.selectedOptionIndex()));
                 }
-                if (req.timeSpentInSeconds() != null) {
-                    answer.setTimeSpentSeconds(req.timeSpentInSeconds());
+                if (entry.timeSpentInSeconds() != null) {
+                    answer.setTimeSpentSeconds(entry.timeSpentInSeconds());
                 }
-                studentAnswerRepository.save(answer);
+                toSave.add(answer);
             }
 
-            activityLogRepository.save(ActivityLog.builder()
-                    .student(student).college(student.getCollege()).examCode(student.getExamCode())
-                    .eventType(ActivityEventType.ANSWER_SAVED)
-                    .question(answer != null ? answer.getQuestion() : null)
-                    .selectedOption(req.selectedOptionIndex())
-                    .ipAddress(httpRequest != null ? httpRequest.getRemoteAddr() : null)
-                    .build());
+            if (!toSave.isEmpty()) {
+                studentAnswerRepository.saveAll(toSave);
+                // ONE audit log entry for the whole page-save, not one per
+                // question (previously 5 ANSWER_SAVED inserts per page,
+                // now 1). Doesn't reference a single question any more,
+                // since this now covers a batch of them.
+                activityLogRepository.save(ActivityLog.builder()
+                        .student(student).college(student.getCollege()).examCode(student.getExamCode())
+                        .eventType(ActivityEventType.ANSWER_SAVED)
+                        .ipAddress(httpRequest != null ? httpRequest.getRemoteAddr() : null)
+                        .build());
+            }
         }
 
         if (req.currentQuestionIndex() != null) {
@@ -178,6 +192,10 @@ public class StudentExamService {
         }
 
         student.setLastSavedAt(LocalDateTime.now());
+        // Only ONCE per page-save now, not once per question (was 5x per
+        // page) - combined with @DynamicUpdate on Student, this is both
+        // 5x fewer of these writes AND each one only touches the columns
+        // that actually changed.
         studentRepository.save(student);
 
         return Map.of("message", "Progress saved.", "tabSwitchViolations", student.getTabSwitchViolations());
@@ -185,7 +203,13 @@ public class StudentExamService {
 
     @Transactional
     public SubmitExamResponse submitExam(Long studentId, boolean autoSubmitted, HttpServletRequest httpRequest) {
-        Student student = getStudent(studentId);
+        // Locked read (see StudentRepository.findByIdForUpdate) - closes the
+        // race where two near-simultaneous submit calls for the same
+        // student could both see examSubmitted=false and both try to score.
+        // A second concurrent call now blocks here until the first commits,
+        // then correctly sees examSubmitted=true below and short-circuits.
+        Student student = studentRepository.findByIdForUpdate(studentId)
+                .orElseThrow(() -> ApiException.notFound("Student not found."));
 
         if (student.isExamSubmitted()) {
             return new SubmitExamResponse("Exam already submitted.", true, currentScores(student));

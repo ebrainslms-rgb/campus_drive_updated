@@ -1,6 +1,6 @@
 package com.ecobrains.lms.controller;
 
-import com.ecobrains.lms.dto.request.SaveProgressRequest;
+import com.ecobrains.lms.dto.request.SaveProgressBatchRequest;
 import com.ecobrains.lms.dto.request.SubmitExamRequest;
 import com.ecobrains.lms.dto.response.ExamStateResponse;
 import com.ecobrains.lms.dto.response.SubmitExamResponse;
@@ -39,7 +39,7 @@ public class StudentExamController {
     }
 
     @PostMapping("/save-progress")
-    public ResponseEntity<Map<String, Object>> saveProgress(@RequestBody SaveProgressRequest request, HttpServletRequest httpRequest) {
+    public ResponseEntity<Map<String, Object>> saveProgress(@RequestBody SaveProgressBatchRequest request, HttpServletRequest httpRequest) {
         return ResponseEntity.ok(studentExamService.saveProgress(CurrentUser.studentId(), request, httpRequest));
     }
 

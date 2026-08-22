@@ -44,10 +44,10 @@ import ThemeToggle from "./shared/ThemeToggle.jsx";
 
 /* ─── Constants ─────────────────────────────────────────────────────────── */
 const FALLBACK_SECONDS      = 60 * 60;
-const Qs_PER_PAGE           = 5;
+const Qs_PER_PAGE           = 10; // was 5 - halves page-navigation frequency, and now aligns each 10-question section (Aptitude/Logical) to exactly one page
 const WARN_SECONDS          = 10;
 const LS_SLOT_END_KEY       = "examSlotEndTime";
-const MANUAL_SUBMIT_WINDOW_MS = 5 * 60 * 1000; // final 5 minutes, from actual remaining time
+const FALLBACK_MANUAL_SUBMIT_WINDOW_MS = 5 * 60 * 1000; // used only until the admin-configured value loads
 const FS_TRANSITION_MS      = 1500; // widened from 800ms - guard window for fullscreen entry
 
 /* ─── Helpers ────────────────────────────────────────────────────────────── */
@@ -318,7 +318,7 @@ function QuestionCard({ question, globalIndex, selectedOption, onSelect, locked,
       </div>
 
       <div className="px-5 py-4">
-        <p className="text-sm leading-relaxed font-medium" style={{ color: "var(--eb-text)" }}>{question.question}</p>
+        <p className="text-sm leading-relaxed font-medium" style={{ color: "var(--eb-text)", whiteSpace: "pre-wrap", fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>{question.question}</p>
       </div>
 
       <div className="px-5 pb-5 grid grid-cols-1 md:grid-cols-2 gap-2.5">
@@ -342,7 +342,7 @@ function QuestionCard({ question, globalIndex, selectedOption, onSelect, locked,
                 }}>
                 {keys[idx]}
               </span>
-              <span className="leading-snug">{opt}</span>
+              <span className="leading-snug" style={{ whiteSpace: "pre-wrap", fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" }}>{opt}</span>
             </button>
           );
         })}
@@ -431,6 +431,7 @@ export default function ExamPage() {
   const [locked,      setLocked]      = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profile,     setProfile]     = useState(null); // read-only, ProfilePopup only
+  const [manualSubmitWindowMs, setManualSubmitWindowMs] = useState(FALLBACK_MANUAL_SUBMIT_WINDOW_MS);
 
   /* ── Refs — UNCHANGED ──────────────────────────────────────────────── */
   const slotEndMsRef    = useRef(null);
@@ -439,6 +440,7 @@ export default function ExamPage() {
   const warnTimerRef    = useRef(null);
   const isSubmittedRef  = useRef(false);
   const fsTransitionRef = useRef(false);
+  const saveInFlightRef = useRef(null); // holds the currently-running saveProgress() promise, if any
 
   /* ── Derived ───────────────────────────────────────────────────────── */
   const totalPages    = Math.max(1, Math.ceil(questions.length / Qs_PER_PAGE));
@@ -451,7 +453,7 @@ export default function ExamPage() {
   // Manual submit visibility - purely a display gate, computed from the
   // same server-synced remainingMs the timer already uses. Never a second
   // timer, never a separate deadline calculation.
-  const manualSubmitAvailable = remainingMs !== null && remainingMs <= MANUAL_SUBMIT_WINDOW_MS;
+  const manualSubmitAvailable = remainingMs !== null && remainingMs <= manualSubmitWindowMs;
 
   // Categories built from whatever question.type values are actually
   // present - order follows first-appearance in the (already server-
@@ -537,17 +539,40 @@ export default function ExamPage() {
      SAVE PROGRESS (best effort, per-page) — UNCHANGED
   ───────────────────────────────────────────────────────────────────── */
   const saveProgress = useCallback(async (nextPageStart) => {
-    const pageQs = questions.slice(page * Qs_PER_PAGE, page * Qs_PER_PAGE + Qs_PER_PAGE);
-    for (const q of pageQs) {
+    // If a save is already running (e.g. a double-click on Next, or Next
+    // followed immediately by Submit), wait for it to finish first rather
+    // than either (a) letting two saves run concurrently - that's exactly
+    // what caused real MySQL deadlocks in production, since each save is a
+    // full-row update on the same student - or (b) silently skipping this
+    // one, which could let a student submit before their last page's
+    // answers were actually persisted. Serializing guarantees neither.
+    if (saveInFlightRef.current) {
+      await saveInFlightRef.current;
+    }
+    const runSave = (async () => {
+      const pageQs = questions.slice(page * Qs_PER_PAGE, page * Qs_PER_PAGE + Qs_PER_PAGE);
+      // ONE request carrying every question's current answer on this page,
+      // instead of one HTTP request per question (previously 5 separate
+      // POSTs per page change). This is the actual capacity fix - it's
+      // what cuts both request volume and full-row Student updates 5x.
+      const answerEntries = pageQs.map(q => ({
+        questionId: q.id,
+        selectedOptionIndex: answers[q.id] ?? null,
+        timeSpentInSeconds: 0,
+      }));
       try {
         const token = localStorage.getItem("studentToken");
         await api.post("/student/exam/save-progress", {
-          questionId: q.id,
-          selectedOptionIndex: answers[q.id] ?? null,
-          timeSpentInSeconds: 0,
+          answers: answerEntries,
           currentQuestionIndex: nextPageStart,
         }, { headers: { Authorization: `Bearer ${token}` } });
       } catch { /* best effort */ }
+    })();
+    saveInFlightRef.current = runSave;
+    try {
+      await runSave;
+    } finally {
+      if (saveInFlightRef.current === runSave) saveInFlightRef.current = null;
     }
   }, [questions, page, answers]);
 
@@ -563,6 +588,23 @@ export default function ExamPage() {
       .then(res => setProfile(res.data))
       .catch(() => { /* non-critical, ignore */ });
   }, [fsPrompt, loading]);
+
+  /* ─────────────────────────────────────────────────────────────────────
+     MANUAL SUBMIT WINDOW — admin-configurable (Profile -> Exam Settings),
+     was previously a hardcoded 5-minute constant. Falls back to 5 minutes
+     if this fetch fails, so the button still works even if this endpoint
+     is briefly unavailable.
+  ───────────────────────────────────────────────────────────────────── */
+  useEffect(() => {
+    api.get("/admin/exam-settings/public")
+      .then(res => {
+        const minutes = res.data?.manualSubmitWindowMinutes;
+        if (typeof minutes === "number" && minutes > 0) {
+          setManualSubmitWindowMs(minutes * 60 * 1000);
+        }
+      })
+      .catch(() => { /* keep fallback on any failure */ });
+  }, []);
 
   /* ─────────────────────────────────────────────────────────────────────
      RE-SYNC ON RECONNECT / FOCUS — UNCHANGED
@@ -934,7 +976,7 @@ export default function ExamPage() {
             <span>{answeredCount} answered · {questions.length - answeredCount} remaining</span>
             {isLastPage && !manualSubmitAvailable && (
               <span className="flex items-center gap-1" style={{ color: "var(--eb-text-faint)" }}>
-                <Icons.Info /> Manual submit unlocks in the final 5 minutes. Your exam auto-submits when time runs out.
+                   <Icons.Info /> Manual submit unlocks in the final {manualSubmitWindowMs / 60000} minutes. Your exam auto-submits when time runs out.
               </span>
             )}
             {isLastPage && manualSubmitAvailable && (

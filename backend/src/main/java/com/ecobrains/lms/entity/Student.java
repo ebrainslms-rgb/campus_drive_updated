@@ -2,6 +2,7 @@ package com.ecobrains.lms.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.DynamicUpdate;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -11,6 +12,13 @@ import java.time.LocalDateTime;
         @UniqueConstraint(name = "uk_student_email", columnNames = "email"),
         @UniqueConstraint(name = "uk_student_phone", columnNames = "phone_number")
 })
+// Only the columns that actually changed are included in the UPDATE
+// statement, instead of all ~25 mapped columns every time. Doesn't reduce
+// how many updates happen, but shrinks each one, which means less time
+// holding the row lock - directly reduces contention/deadlock risk on
+// this specific row, which is exactly what the save-progress and
+// exam-submit paths repeatedly write to under load.
+@DynamicUpdate
 @Getter
 @Setter
 @NoArgsConstructor

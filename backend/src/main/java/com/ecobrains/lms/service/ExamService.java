@@ -1,5 +1,6 @@
 package com.ecobrains.lms.service;
 
+import com.ecobrains.lms.dto.request.RescheduleExamRequest;
 import com.ecobrains.lms.dto.request.ScheduleExamRequest;
 import com.ecobrains.lms.dto.response.ExamResponse;
 import com.ecobrains.lms.entity.AdminLog;
@@ -84,7 +85,7 @@ public class ExamService {
     }
 
     @Transactional
-    public ExamResponse update(Long id, ScheduleExamRequest req) {
+    public ExamResponse update(Long id, RescheduleExamRequest req) {
         Exam exam = examRepository.findById(id).orElseThrow(() -> ApiException.notFound("Exam not found."));
 
         if (!exam.isEditable()) {

@@ -1,10 +1,12 @@
 package com.ecobrains.lms.repository;
 
 import com.ecobrains.lms.entity.Student;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -18,6 +20,21 @@ public interface StudentRepository extends JpaRepository<Student, Long>, JpaSpec
     boolean existsByPhoneNumber(String phoneNumber);
     long countByExamCodeAndExamSubmittedTrue(String examCode);
     List<Student> findByCollegeId(Long collegeId);
+
+    /** Row-level locked read, used ONLY by the exam-submit path. Plain
+     *  findById() lets two near-simultaneous submit requests for the same
+     *  student both read examSubmitted=false before either has committed
+     *  its write - a genuine (if narrow) race window. PESSIMISTIC_WRITE
+     *  forces a real SELECT ... FOR UPDATE, so a second submit request
+     *  blocks until the first transaction commits, then correctly sees
+     *  examSubmitted=true and short-circuits instead of double-scoring.
+     *  Deliberately NOT used by the much more frequent save-progress path -
+     *  that path is already made safe by client-side serialization (see
+     *  ExamPage.jsx), and adding a lock there too would only add
+     *  contention without closing any additional gap. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT s FROM Student s WHERE s.id = :id")
+    Optional<Student> findByIdForUpdate(@Param("id") Long id);
     long countByCollegeId(Long collegeId);
 
     // -- Dashboard aggregates --------------------------------------------
