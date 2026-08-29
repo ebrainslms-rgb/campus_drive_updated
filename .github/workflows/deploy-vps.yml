@@ -26,11 +26,8 @@ permissions:
 jobs:
   deploy:
     name: Build and deploy
-    # GitHub matches runner LABELS, not the runner display name.
-    # Default labels on this VPS runner: self-hosted, Linux, X64
-    # Also add a custom label "contabo-cd" in:
-    #   Repo → Settings → Actions → Runners → contabo-cd → labels
-    runs-on: [self-hosted, Linux, X64, contabo-cd]
+    # Match the default labels from config.sh (not the runner *name* contabo-cd).
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 45
     env:
       DEPLOY_DIR: /root/campus_drive_updated
