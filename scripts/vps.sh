@@ -101,6 +101,17 @@ parse_nginx_flags() {
   done
 }
 
+# systemd User= must be able to chdir into WorkingDirectory.
+# sudo from github-runner sets SUDO_USER=github-runner, who cannot enter /root (200/CHDIR).
+resolve_deploy_user() {
+  local candidate="${DEPLOY_USER:-${SUDO_USER:-root}}"
+  if [[ "${PROJECT_ROOT}" == /root || "${PROJECT_ROOT}" == /root/* ]]; then
+    candidate=root
+  fi
+  DEPLOY_USER="${candidate}"
+  export DEPLOY_USER
+}
+
 validate_jwt_secret() {
   local secret="$1"
   secret="${secret//$'\r'/}"
@@ -225,7 +236,7 @@ WantedBy=multi-user.target
 EOF
   systemctl daemon-reload
   systemctl enable "${SERVICE_NAME}"
-  log_info "Installed systemd service: ${SERVICE_NAME}"
+  log_info "Installed systemd service: ${SERVICE_NAME} (User=${run_user})"
 }
 
 install_nginx_site() {
@@ -410,7 +421,8 @@ cmd_deploy() {
   validate_env_vars
   local -a extra=()
   parse_nginx_flags extra "$@"
-  export DEPLOY_USER="${SUDO_USER:-root}"
+  resolve_deploy_user
+  log_info "systemd service user: ${DEPLOY_USER}"
 
   cmd_build all
   write_backend_env
@@ -440,7 +452,8 @@ cmd_update() {
   require_root
   print_header
   validate_env_vars
-  export DEPLOY_USER="${SUDO_USER:-root}"
+  resolve_deploy_user
+  log_info "systemd service user: ${DEPLOY_USER}"
 
   local -a args=()
   parse_nginx_flags args "$@"
@@ -595,4 +608,3 @@ main() {
 }
 
 main "$@"
-
