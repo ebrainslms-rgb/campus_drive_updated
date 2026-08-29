@@ -26,7 +26,11 @@ permissions:
 jobs:
   deploy:
     name: Build and deploy
-    runs-on: [self-hosted, Linux, X64]
+    # GitHub matches runner LABELS, not the runner display name.
+    # Default labels on this VPS runner: self-hosted, Linux, X64
+    # Also add a custom label "contabo-cd" in:
+    #   Repo → Settings → Actions → Runners → contabo-cd → labels
+    runs-on: [self-hosted, Linux, X64, contabo-cd]
     timeout-minutes: 45
     env:
       DEPLOY_DIR: /root/campus_drive_updated
@@ -40,6 +44,8 @@ jobs:
           set -euo pipefail
           sudo mkdir -p "${DEPLOY_DIR}"
           sudo rsync -a --delete \
+            --filter 'P .env' \
+            --filter 'P backend.env' \
             --exclude '.env' \
             --exclude 'backend.env' \
             --exclude '.git/' \
@@ -48,7 +54,8 @@ jobs:
             --exclude 'backend/target/' \
             "${GITHUB_WORKSPACE}/" "${DEPLOY_DIR}/"
           sudo chown -R root:root "${DEPLOY_DIR}"
-          if [[ -f "${DEPLOY_DIR}/.env" ]]; then
+          # github-runner cannot stat files under /root (mode 700); use sudo.
+          if sudo test -f "${DEPLOY_DIR}/.env"; then
             sudo chmod 600 "${DEPLOY_DIR}/.env"
           else
             echo "::error::Missing ${DEPLOY_DIR}/.env — copy .env.example on the VPS first."
