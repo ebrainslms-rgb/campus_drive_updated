@@ -94,7 +94,7 @@ function getInitialMode() {
    * Default requirement:
    * Light theme when no preference has been selected.
    */
-  return "light";
+  return "system";
 }
 
 /* ---------------------------------------------------------

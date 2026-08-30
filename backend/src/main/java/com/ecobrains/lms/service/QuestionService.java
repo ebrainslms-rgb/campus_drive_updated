@@ -8,6 +8,7 @@ import com.ecobrains.lms.exception.ApiException;
 import com.ecobrains.lms.repository.AdminLogRepository;
 import com.ecobrains.lms.repository.ActivityLogRepository;
 import com.ecobrains.lms.repository.CourseRepository;
+import com.ecobrains.lms.repository.ExamRepository;
 import com.ecobrains.lms.repository.QuestionRepository;
 import com.ecobrains.lms.repository.StudentAnswerRepository;
 import com.ecobrains.lms.security.CurrentUser;
@@ -21,6 +22,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -37,15 +39,17 @@ public class QuestionService {
     private final AdminLogRepository adminLogRepository;
     private final StudentAnswerRepository studentAnswerRepository;
     private final ActivityLogRepository activityLogRepository;
+    private final ExamRepository examRepository;
 
     public QuestionService(QuestionRepository questionRepository, CourseRepository courseRepository,
                             AdminLogRepository adminLogRepository, StudentAnswerRepository studentAnswerRepository,
-                            ActivityLogRepository activityLogRepository) {
+                            ActivityLogRepository activityLogRepository, ExamRepository examRepository) {
         this.questionRepository = questionRepository;
         this.courseRepository = courseRepository;
         this.adminLogRepository = adminLogRepository;
         this.studentAnswerRepository = studentAnswerRepository;
         this.activityLogRepository = activityLogRepository;
+        this.examRepository = examRepository;
     }
 
     @Transactional
@@ -56,17 +60,24 @@ public class QuestionService {
                 .orElseThrow(() -> ApiException.badRequest("Selected course is inactive or not found."));
         if (!course.isActive()) throw ApiException.badRequest("Cannot upload questions: selected course is inactive.");
 
-        // Block ONLY while a student is genuinely mid-exam right now on this
-        // course (started, not yet submitted) - their answers aren't final
-        // yet and still need the current Question rows to exist.
-        if (studentAnswerRepository.existsLiveExamForCourse(courseId)) {
+        // Block ONLY while a scheduled exam's own time window genuinely
+        // contains right now, for this course - purely server-side and
+        // time-based. Deliberately NOT tied to any individual student's
+        // started/submitted flags any more: those can get stuck at
+        // "not submitted" forever if a student's final submit request
+        // fails (poor network, closed tab, etc.), which would otherwise
+        // block question uploads indefinitely long after the real exam
+        // window has already closed.
+        LocalDateTime now = LocalDateTime.now();
+        if (examRepository.existsOngoingExamForCourse(courseId, now)) {
+            List<String> codes = examRepository.ongoingExamCodesForCourse(courseId, now);
             throw ApiException.conflict(
-                    "Cannot replace questions for \"" + course.getName() + "\": a student is currently taking an " +
-                    "exam using the current question set. Please wait until the drive finishes."
+                    "Cannot replace questions for \"" + course.getName() + "\": an exam is currently in progress " +
+                    "for this course (code: " + String.join(", ", codes) + "). Please wait until it finishes."
             );
         }
 
-        // No live exam remains, so any StudentAnswer rows still present at
+        // No ongoing exam remains, so any StudentAnswer rows still present at
         // this point belong only to already-completed students. Their score
         // and registration data live on the Student row itself and are
         // completely unaffected by this - only the specific per-question

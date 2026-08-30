@@ -54,4 +54,24 @@ public interface ExamRepository extends JpaRepository<Exam, Long> {
      *  newest scheduled time first. Distinct from findByCollegeIdOrderByStartTimeDesc,
      *  which is scoped to one college for the existing College Overview flow. */
     Page<Exam> findAllByOrderByStartTimeDesc(Pageable pageable);
+
+    /** Is there a scheduled exam for this course whose time window contains
+     *  right now? Purely server-side and time-based - deliberately NOT tied
+     *  to any individual student's own started/submitted flags, which can
+     *  get stuck indefinitely if a student's submit request fails (network
+     *  drop, closed tab, etc.) without ever resolving. A student's own
+     *  state can be wrong forever; the scheduled exam's start/end time
+     *  cannot - it's fixed the moment the drive is scheduled. Naturally
+     *  ignores past and future exams: the BETWEEN only matches while the
+     *  actual scheduled window is genuinely open right now. */
+    @Query("SELECT COUNT(e) > 0 FROM Exam e WHERE e.course.id = :courseId " +
+           "AND :now BETWEEN e.startTime AND e.endTime")
+    boolean existsOngoingExamForCourse(@Param("courseId") Long courseId, @Param("now") LocalDateTime now);
+
+    /** Companion to existsOngoingExamForCourse - returns the actual exam
+     *  code(s) so the admin sees exactly which drive is blocking them,
+     *  instead of just being told "something" is ongoing. */
+    @Query("SELECT e.examCode FROM Exam e WHERE e.course.id = :courseId " +
+           "AND :now BETWEEN e.startTime AND e.endTime")
+    List<String> ongoingExamCodesForCourse(@Param("courseId") Long courseId, @Param("now") LocalDateTime now);
 }
