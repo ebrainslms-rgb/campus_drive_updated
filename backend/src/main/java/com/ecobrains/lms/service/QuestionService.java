@@ -8,9 +8,9 @@ import com.ecobrains.lms.exception.ApiException;
 import com.ecobrains.lms.repository.AdminLogRepository;
 import com.ecobrains.lms.repository.ActivityLogRepository;
 import com.ecobrains.lms.repository.CourseRepository;
-import com.ecobrains.lms.repository.ExamRepository;
 import com.ecobrains.lms.repository.QuestionRepository;
 import com.ecobrains.lms.repository.StudentAnswerRepository;
+import com.ecobrains.lms.repository.StudentRepository;
 import com.ecobrains.lms.security.CurrentUser;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
@@ -40,17 +40,17 @@ public class QuestionService {
     private final AdminLogRepository adminLogRepository;
     private final StudentAnswerRepository studentAnswerRepository;
     private final ActivityLogRepository activityLogRepository;
-    private final ExamRepository examRepository;
+    private final StudentRepository studentRepository;
 
     public QuestionService(QuestionRepository questionRepository, CourseRepository courseRepository,
                             AdminLogRepository adminLogRepository, StudentAnswerRepository studentAnswerRepository,
-                            ActivityLogRepository activityLogRepository, ExamRepository examRepository) {
+                            ActivityLogRepository activityLogRepository, StudentRepository studentRepository) {
         this.questionRepository = questionRepository;
         this.courseRepository = courseRepository;
         this.adminLogRepository = adminLogRepository;
         this.studentAnswerRepository = studentAnswerRepository;
         this.activityLogRepository = activityLogRepository;
-        this.examRepository = examRepository;
+        this.studentRepository = studentRepository;
     }
 
     @Transactional
@@ -62,23 +62,25 @@ public class QuestionService {
         if (!course.isActive()) throw ApiException.badRequest("Cannot upload questions: selected course is inactive.");
 
         // Block ONLY while a scheduled exam's own time window genuinely
-        // contains right now, for this course - purely server-side and
-        // time-based. Deliberately NOT tied to any individual student's
-        // started/submitted flags any more: those can get stuck at
-        // "not submitted" forever if a student's final submit request
-        // fails (poor network, closed tab, etc.), which would otherwise
-        // block question uploads indefinitely long after the real exam
-        // window has already closed.
+        // contains right now, for a student enrolled in THIS course -
+        // purely server-side and time-based, never tied to any individual
+        // student's started/submitted flags (those can get stuck forever
+        // if a submit request fails).
+        //
+        // Deliberately goes through Student.course, NOT Exam.course: the
+        // real "Schedule New Exam" admin form has no course field at all,
+        // so Exam.course is essentially always null in practice. Student's
+        // own course is required (never null), which is what makes this
+        // check actually work against real data.
+        //
         // Uses explicit IST, matching every other exam-timing check in this
         // codebase (StudentAuthService, StudentExamService) - the server's
         // own default timezone is not guaranteed to be IST (commonly UTC on
         // cloud VPS deployments), and exam start/end times are stored as
-        // IST wall-clock values. Using bare LocalDateTime.now() here was a
-        // real bug: it silently used the server's system zone instead,
-        // which could be hours off from the actual scheduled window.
+        // IST wall-clock values.
         LocalDateTime now = LocalDateTime.now(ZoneId.of("Asia/Kolkata"));
-        if (examRepository.existsOngoingExamForCourse(courseId, now)) {
-            List<String> codes = examRepository.ongoingExamCodesForCourse(courseId, now);
+        if (studentRepository.existsOngoingExamForCourse(courseId, now)) {
+            List<String> codes = studentRepository.ongoingExamCodesForCourse(courseId, now);
             throw ApiException.conflict(
                     "Cannot replace questions for \"" + course.getName() + "\": an exam is currently in progress " +
                     "for this course (code: " + String.join(", ", codes) + "). Please wait until it finishes."
