@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -68,7 +69,14 @@ public class QuestionService {
         // fails (poor network, closed tab, etc.), which would otherwise
         // block question uploads indefinitely long after the real exam
         // window has already closed.
-        LocalDateTime now = LocalDateTime.now();
+        // Uses explicit IST, matching every other exam-timing check in this
+        // codebase (StudentAuthService, StudentExamService) - the server's
+        // own default timezone is not guaranteed to be IST (commonly UTC on
+        // cloud VPS deployments), and exam start/end times are stored as
+        // IST wall-clock values. Using bare LocalDateTime.now() here was a
+        // real bug: it silently used the server's system zone instead,
+        // which could be hours off from the actual scheduled window.
+        LocalDateTime now = LocalDateTime.now(ZoneId.of("Asia/Kolkata"));
         if (examRepository.existsOngoingExamForCourse(courseId, now)) {
             List<String> codes = examRepository.ongoingExamCodesForCourse(courseId, now);
             throw ApiException.conflict(
