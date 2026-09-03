@@ -381,41 +381,168 @@ def analyze_access_log(path: Path, max_lines: int, since: datetime | None) -> di
     }
 
 
-def collect_mysql(env: dict[str, str]) -> dict[str, Any]:
+def mysql_exec(env: dict[str, str], sql: str) -> tuple[bool, str]:
     user = env.get("MYSQL_USER") or env.get("SPRING_DATASOURCE_USERNAME")
     password = env.get("MYSQL_PASSWORD") or env.get("SPRING_DATASOURCE_PASSWORD")
     database = env.get("MYSQL_DATABASE", "")
     host = env.get("MYSQL_HOST", "127.0.0.1")
     port = env.get("MYSQL_PORT", "3306")
     if not user:
-        return {"skipped": True, "note": "no MYSQL_USER in .env"}
+        return False, "no MYSQL_USER in .env"
+    cmd = ["mysql", f"-h{host}", f"-P{port}", f"-u{user}", "-N", "-e", sql]
+    if database:
+        cmd.insert(1, f"-D{database}")
+    env_run = os.environ.copy()
+    if password:
+        env_run["MYSQL_PWD"] = password
+    try:
+        result = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=20, env=env_run)
+        if result.returncode == 0:
+            return True, (result.stdout or "").strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+        return False, str(exc)
+    code2, out2 = run_ok(
+        ["mysql", "--protocol=socket", "-uroot", f"-D{database}", "-N", "-e", sql] if database
+        else ["mysql", "--protocol=socket", "-uroot", "-N", "-e", sql],
+        timeout=20,
+    )
+    if code2 != 0:
+        return False, (out2 or "mysql connect failed")
+    return True, out2
+
+
+def mysql_table(env: dict[str, str], sql: str) -> list[list[str]]:
+    ok, text = mysql_exec(env, sql)
+    if not ok or not text:
+        return []
+    return [line.split("\t") for line in text.splitlines() if line.strip()]
+
+
+def collect_mysql(env: dict[str, str]) -> dict[str, Any]:
     sql = (
         "SHOW GLOBAL STATUS WHERE Variable_name IN "
         "('Threads_connected','Threads_running','Slow_queries','Questions',"
         "'Uptime','Aborted_connects','Max_used_connections');"
         "SHOW VARIABLES WHERE Variable_name IN ('max_connections','innodb_buffer_pool_size');"
     )
-    cmd = ["mysql", f"-h{host}", f"-P{port}", f"-u{user}", "-N", "-e", sql]
-    env_run = os.environ.copy()
-    if password:
-        env_run["MYSQL_PWD"] = password
-    try:
-        result = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=15, env=env_run)
-        code, out = result.returncode, (result.stdout or "").strip()
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
-        return {"skipped": True, "note": str(exc)}
-    if code != 0:
-        # socket as root often works without app user
-        code2, out2 = run_ok(["mysql", "--protocol=socket", "-uroot", "-N", "-e", sql], timeout=15)
-        if code2 != 0:
-            return {"skipped": True, "note": "mysql client could not connect (app user and socket root both failed)"}
-        out = out2
+    ok, out = mysql_exec(env, sql)
+    if not ok:
+        return {"skipped": True, "note": out}
     stats: dict[str, str] = {}
     for line in out.splitlines():
         parts = line.split()
         if len(parts) >= 2:
             stats[parts[0]] = parts[1]
-    return {"skipped": False, "database": database, "stats": stats}
+    return {"skipped": False, "database": env.get("MYSQL_DATABASE", ""), "stats": stats}
+
+
+def collect_app(env: dict[str, str], hours: int) -> dict[str, Any]:
+    """Workload from tables the LMS already writes (no Actuator/Micrometer in the app)."""
+    hours = max(1, min(int(hours), 168))
+    probe = mysql_table(env, "SHOW TABLES LIKE 'activity_logs'")
+    if not probe:
+        return {
+            "skipped": True,
+            "note": "Could not read activity_logs (MySQL down, wrong DB, or schema not created).",
+        }
+
+    students = mysql_table(
+        env,
+        "SELECT COUNT(*), "
+        "IFNULL(SUM(exam_started),0), IFNULL(SUM(exam_submitted),0), "
+        "IFNULL(SUM(exam_started=1 AND exam_submitted=0),0), "
+        "IFNULL(SUM(exam_started=1 AND exam_submitted=0 "
+        "AND last_saved_at >= NOW() - INTERVAL 2 MINUTE),0) "
+        "FROM students",
+    )
+    events = mysql_table(
+        env,
+        f"SELECT event_type, COUNT(*) FROM activity_logs "
+        f"WHERE created_at >= NOW() - INTERVAL {hours} HOUR "
+        f"GROUP BY event_type ORDER BY COUNT(*) DESC",
+    )
+    save_peak = mysql_table(
+        env,
+        f"SELECT DATE_FORMAT(created_at, '%Y-%m-%d %H:%i'), COUNT(*) "
+        f"FROM activity_logs WHERE event_type='ANSWER_SAVED' "
+        f"AND created_at >= NOW() - INTERVAL {hours} HOUR "
+        f"GROUP BY 1 ORDER BY 2 DESC LIMIT 8",
+    )
+    concurrent = mysql_table(
+        env,
+        f"SELECT FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(created_at)/30)*30), "
+        f"COUNT(DISTINCT student_id) FROM activity_logs "
+        f"WHERE event_type='ANSWER_SAVED' "
+        f"AND created_at >= NOW() - INTERVAL {hours} HOUR "
+        f"GROUP BY 1 ORDER BY 2 DESC LIMIT 8",
+    )
+    duration = mysql_table(
+        env,
+        "SELECT COUNT(*), "
+        "ROUND(AVG(sec)/60,1), ROUND(MIN(sec)/60,1), ROUND(MAX(sec)/60,1) FROM ("
+        "  SELECT TIMESTAMPDIFF(SECOND, s.started_at, MIN(a.created_at)) AS sec "
+        "  FROM students s "
+        "  JOIN activity_logs a ON a.student_id = s.id "
+        "    AND a.event_type IN ('AUTO_SUBMIT','MANUAL_SUBMIT') "
+        "  WHERE s.started_at IS NOT NULL "
+        "  GROUP BY s.id, s.started_at"
+        ") d WHERE sec BETWEEN 0 AND 86400",
+    )
+    answers = mysql_table(
+        env,
+        "SELECT COUNT(*), IFNULL(SUM(selected_option IS NOT NULL),0) FROM student_answers",
+    )
+    tables = mysql_table(
+        env,
+        "SELECT table_name, table_rows, "
+        "ROUND((data_length+index_length)/1024/1024,2) "
+        "FROM information_schema.tables "
+        f"WHERE table_schema = DATABASE() "
+        "AND table_name IN ('activity_logs','student_answers','students','exams','questions') "
+        "ORDER BY (data_length+index_length) DESC",
+    )
+    exams = mysql_table(
+        env,
+        "SELECT exam_code, start_time, end_time, "
+        "IF(NOW() BETWEEN start_time AND end_time,'in_window','outside') "
+        "FROM exams ORDER BY start_time DESC LIMIT 10",
+    )
+    tab_switch = mysql_table(
+        env,
+        f"SELECT COUNT(*) FROM activity_logs WHERE event_type='TAB_SWITCH' "
+        f"AND created_at >= NOW() - INTERVAL {hours} HOUR",
+    )
+
+    def first_row(rows: list[list[str]], n: int) -> list[str]:
+        if not rows:
+            return [""] * n
+        row = rows[0] + [""] * n
+        return row[:n]
+
+    sc = first_row(students, 5)
+    dur = first_row(duration, 4)
+    ans = first_row(answers, 2)
+    return {
+        "skipped": False,
+        "hours": hours,
+        "students_total": sc[0],
+        "exam_started": sc[1],
+        "exam_submitted": sc[2],
+        "in_progress": sc[3],
+        "active_last_2m": sc[4],
+        "events": events,
+        "save_peak_minutes": save_peak,
+        "concurrent_30s": concurrent,
+        "duration_n": dur[0],
+        "duration_avg_min": dur[1],
+        "duration_min_min": dur[2],
+        "duration_max_min": dur[3],
+        "answer_rows": ans[0],
+        "answered_cells": ans[1],
+        "tables": tables,
+        "exams": exams,
+        "tab_switches": first_row(tab_switch, 1)[0] or "0",
+    }
 
 
 def verdict(snapshot: dict[str, Any]) -> dict[str, Any]:
@@ -470,6 +597,22 @@ def verdict(snapshot: dict[str, Any]) -> dict[str, Any]:
     journal_n = snapshot["journal"].get("error_count") or 0
     if journal_n >= 20:
         findings.append(("warn", f"{journal_n} backend journal error lines in the window (CHDIR/crash loop?)."))
+
+    app = snapshot.get("app") or {}
+    if not app.get("skipped"):
+        try:
+            active = int(app.get("active_last_2m") or 0)
+            in_prog = int(app.get("in_progress") or 0)
+            peak_row = (app.get("concurrent_30s") or [[None, "0"]])[0]
+            peak_users = int(peak_row[1]) if peak_row and len(peak_row) > 1 and str(peak_row[1]).isdigit() else 0
+        except (TypeError, ValueError, IndexError):
+            active, in_prog, peak_users = 0, 0, 0
+        if peak_users >= 200:
+            findings.append(("warn", f"Peak concurrent save-progress students (30s): {peak_users}."))
+        if in_prog >= 50 and active == 0:
+            findings.append(("warn", f"{in_prog} exams marked in-progress but none saved in the last 2 minutes."))
+        if active:
+            findings.append(("ok", f"{active} students saved answers in the last 2 minutes (live exam load)."))
 
     if not findings:
         findings.append(("ok", "No critical resource, error-rate, or probe failures in this snapshot."))
@@ -561,6 +704,42 @@ def render_markdown(snapshot: dict[str, Any]) -> str:
             else:
                 lines.append(f"- {key}: {val}")
 
+    app = snapshot.get("app") or {}
+    lines += ["", "## Application workload (from LMS database)"]
+    if app.get("skipped"):
+        lines.append(f"- {app.get('note')}")
+        lines.append("- The backend has no Actuator/Micrometer timers; this section uses `activity_logs`, `students`, and `student_answers`.")
+    else:
+        lines += [
+            f"- Window: last {app['hours']} hour(s)",
+            f"- Students: {app['students_total']} total, started {app['exam_started']}, "
+            f"submitted {app['exam_submitted']}, in-progress {app['in_progress']}, "
+            f"saved in last 2 min {app['active_last_2m']}",
+            f"- Tab-switch events: {app['tab_switches']}",
+            f"- Exam duration (start → first submit): n={app['duration_n']}, "
+            f"avg {app['duration_avg_min']} min, min {app['duration_min_min']}, max {app['duration_max_min']}",
+            f"- student_answers rows: {app['answer_rows']} (cells with a selection: {app['answered_cells']})",
+            "- Activity events:",
+        ]
+        for row in app.get("events") or []:
+            if len(row) >= 2:
+                lines.append(f"  - {row[0]}: {row[1]}")
+        lines.append("- Peak ANSWER_SAVED per minute:")
+        for row in (app.get("save_peak_minutes") or [])[:5]:
+            if len(row) >= 2:
+                lines.append(f"  - {row[0]}: {row[1]}")
+        lines.append("- Peak distinct students saving in 30s:")
+        for row in (app.get("concurrent_30s") or [])[:5]:
+            if len(row) >= 2:
+                lines.append(f"  - {row[0]}: {row[1]} students")
+        lines.append("- Table sizes:")
+        for row in app.get("tables") or []:
+            if len(row) >= 3:
+                lines.append(f"  - `{row[0]}`: ~{row[1]} rows, {row[2]} MiB")
+        lines.append("- Recent exams:")
+        for row in app.get("exams") or []:
+            lines.append(f"  - {' | '.join(row)}")
+
     lines += ["", "## Backend journal (errors)", "```"]
     lines.extend(snapshot["journal"].get("error_lines") or ["(none)"])
     lines += ["```", "", "## Nginx error log (tail)", "```"]
@@ -629,6 +808,32 @@ def render_html(snapshot: dict[str, Any]) -> str:
         )
     journal = escape("\n".join(snapshot["journal"].get("error_lines") or ["(none)"]))
     ngxerr = escape("\n".join(snapshot.get("nginx_errors") or ["(none)"]))
+    app = snapshot.get("app") or {}
+    if app.get("skipped"):
+        app_metric_rows = [["Note", escape(str(app.get("note") or "unavailable"))]]
+        app_event_rows = [["—", "—"]]
+        app_save_rows = [["—", "—"]]
+        app_conc_rows = [["—", "—"]]
+        app_table_rows = [["—", "—", "—"]]
+        app_exam_rows = [["—", "—", "—", "—"]]
+    else:
+        app_metric_rows = [
+            ["Students", escape(str(app.get("students_total")))],
+            ["Exam started / submitted / in-progress", f"{escape(str(app.get('exam_started')))} / {escape(str(app.get('exam_submitted')))} / {escape(str(app.get('in_progress')))}"],
+            ["Saved in last 2 min", escape(str(app.get("active_last_2m")))],
+            ["Tab switches (window)", escape(str(app.get("tab_switches")))],
+            ["Exam duration avg/min/max (min)", f"{escape(str(app.get('duration_avg_min')))} / {escape(str(app.get('duration_min_min')))} / {escape(str(app.get('duration_max_min')))} (n={escape(str(app.get('duration_n')))})"],
+            ["student_answers (selected)", f"{escape(str(app.get('answer_rows')))} ({escape(str(app.get('answered_cells')))} filled)"],
+        ]
+        app_event_rows = [[escape(r[0]), escape(r[1])] for r in (app.get("events") or []) if len(r) >= 2] or [["—", "—"]]
+        app_save_rows = [[escape(r[0]), escape(r[1])] for r in (app.get("save_peak_minutes") or [])[:8] if len(r) >= 2] or [["—", "—"]]
+        app_conc_rows = [[escape(r[0]), escape(r[1])] for r in (app.get("concurrent_30s") or [])[:8] if len(r) >= 2] or [["—", "—"]]
+        app_table_rows = [
+            [escape(r[0]), escape(r[1]), escape(r[2])]
+            for r in (app.get("tables") or [])
+            if len(r) >= 3
+        ] or [["—", "—", "—"]]
+        app_exam_rows = [[escape(c) for c in r[:4]] for r in (app.get("exams") or [])] or [["—", "—", "—", "—"]]
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"/>
 <title>EcoBrains LMS performance — {escape(host['hostname'])}</title>
@@ -672,6 +877,14 @@ pre {{ background:#f0f4f8; padding:12px; overflow:auto; font-size:12px; }}
 {_table(["Count", "Path"], path_rows if path_rows else [["—", "none"]])}
 <h2>MySQL</h2>
 {_table(["Variable", "Value"], mysql_rows if mysql_rows else [["—", "none"]])}
+<h2>Application workload (LMS database)</h2>
+<p class="meta">From <code>activity_logs</code>, <code>students</code>, <code>student_answers</code> — not HTTP timers (no Actuator in this build).</p>
+{_table(["Metric", "Value"], app_metric_rows)}
+{_table(["Event", "Count"], app_event_rows)}
+{_table(["Minute", "ANSWER_SAVED"], app_save_rows)}
+{_table(["30s bucket", "Distinct students"], app_conc_rows)}
+{_table(["Table", "Rows", "MiB"], app_table_rows)}
+{_table(["Exam code", "Start", "End", "Window"], app_exam_rows)}
 <h2>Backend journal errors</h2>
 <pre>{journal}</pre>
 <h2>Nginx error log (tail)</h2>
@@ -721,6 +934,7 @@ def main() -> int:
         "nginx_errors": collect_nginx_errors(Path(args.error_log)),
         "journal": collect_journal(service, args.hours),
         "mysql": {"skipped": True, "note": "disabled"} if args.no_mysql else collect_mysql(env),
+        "app": {"skipped": True, "note": "disabled"} if args.no_mysql else collect_app(env, args.hours),
     }
     snapshot["verdict"] = verdict(snapshot)
 
