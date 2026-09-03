@@ -547,6 +547,11 @@ cmd_logs() {
   fi
 }
 
+cmd_perf() {
+  print_header
+  bash "${SCRIPT_DIR}/perf-report.sh" "$@"
+}
+
 show_help() {
   cat <<EOF
 EcoBrains LMS — VPS deployment (standalone, no Docker)
@@ -568,6 +573,8 @@ Commands:
   status             Service status + health checks
   logs [target]      View logs: backend (default) | nginx
                      Options: -f, --tail=N
+  perf               Host/Nginx/MySQL/API performance report (sudo)
+                     Options passed through to scripts/perf-report.py
 
 Harden Nginx (TLS, headers, rate limits):
   sudo ./scripts/secure-nginx.sh
@@ -602,6 +609,7 @@ main() {
     stop)      cmd_stop "$@" ;;
     status)    cmd_status "$@" ;;
     logs)      cmd_logs "$@" ;;
+    perf)      cmd_perf "$@" ;;
     help|-h|--help) show_help ;;
     *) log_error "Unknown command: ${cmd}"; show_help; exit 1 ;;
   esac
