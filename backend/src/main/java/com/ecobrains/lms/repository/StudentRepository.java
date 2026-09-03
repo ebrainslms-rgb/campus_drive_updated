@@ -37,6 +37,24 @@ public interface StudentRepository extends JpaRepository<Student, Long>, JpaSpec
     Optional<Student> findByIdForUpdate(@Param("id") Long id);
     long countByCollegeId(Long collegeId);
 
+    /** Is a student enrolled in this course currently sitting inside a
+     *  scheduled exam's actual time window, right now? Deliberately goes
+     *  through Student (whose course is required, never null) rather than
+     *  Exam.course (which is optional and, in practice, never actually set
+     *  by the real "Schedule New Exam" admin form - it has no course field
+     *  at all). Also deliberately does NOT check examStarted/examSubmitted -
+     *  a student's own completion flags can get stuck indefinitely if their
+     *  submit request fails; the exam's scheduled time window cannot. */
+    @Query("SELECT COUNT(s) > 0 FROM Student s WHERE s.course.id = :courseId " +
+           "AND s.exam IS NOT NULL AND :now BETWEEN s.exam.startTime AND s.exam.endTime")
+    boolean existsOngoingExamForCourse(@Param("courseId") Long courseId, @Param("now") LocalDateTime now);
+
+    /** Companion to existsOngoingExamForCourse - the actual exam code(s) so
+     *  the admin sees exactly which drive is blocking them. */
+    @Query("SELECT DISTINCT s.exam.examCode FROM Student s WHERE s.course.id = :courseId " +
+           "AND s.exam IS NOT NULL AND :now BETWEEN s.exam.startTime AND s.exam.endTime")
+    List<String> ongoingExamCodesForCourse(@Param("courseId") Long courseId, @Param("now") LocalDateTime now);
+
     // -- Dashboard aggregates --------------------------------------------
     // All queries below use an explicit LEFT JOIN to the (nullable) exam
     // association - a plain dot-path (s.exam.startTime) would silently

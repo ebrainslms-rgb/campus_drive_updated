@@ -427,6 +427,7 @@ export default function ExamPage() {
   const [remainingMs, setRemainingMs] = useState(null);
   const [warnSecs,    setWarnSecs]    = useState(0);
   const [submitting,  setSubmitting]  = useState(false);
+  const [submitError, setSubmitError] = useState(null); // set only after retries are exhausted - student is told honestly, never shown a fake success
   const [violations,  setViolations]  = useState(0);
   const [locked,      setLocked]      = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -438,7 +439,8 @@ export default function ExamPage() {
   const clockDriftMsRef = useRef(0);
   const tickRef         = useRef(null);
   const warnTimerRef    = useRef(null);
-  const isSubmittedRef  = useRef(false);
+  const isSubmittedRef  = useRef(false); // set ONLY on a confirmed server success - never optimistically
+  const submittingRef   = useRef(false); // true only while a submit attempt is actually in flight (guards against overlapping retries/triggers)
   const fsTransitionRef = useRef(false);
   const saveInFlightRef = useRef(null); // holds the currently-running saveProgress() promise, if any
 
@@ -480,25 +482,56 @@ export default function ExamPage() {
   /* ─────────────────────────────────────────────────────────────────────
      SUBMIT — UNCHANGED
   ───────────────────────────────────────────────────────────────────── */
+  const lastAutoRef = useRef(false); // remembers which submit type (auto/manual) triggered this, so the Retry button can resume correctly
+
   const submitExam = useCallback(async (auto = false) => {
-    if (isSubmittedRef.current) return;
-    isSubmittedRef.current = true;
+    if (isSubmittedRef.current) return; // already genuinely confirmed by the server - never resubmit
+    if (submittingRef.current) return;  // an attempt is already in flight - don't stack a second one on top
+    submittingRef.current = true;
+    lastAutoRef.current = auto;
     clearInterval(tickRef.current);
     clearTimeout(warnTimerRef.current);
-    localStorage.removeItem(LS_SLOT_END_KEY);
     setSubmitting(true);
-    try {
-      const token = localStorage.getItem("studentToken");
-      const res = await api.post("/student/exam/submit",
-        { autoSubmitted: auto },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      if (res.data?.scores) {
-        localStorage.setItem("examScores", JSON.stringify(res.data.scores));
+    setSubmitError(null);
+
+    const token = localStorage.getItem("studentToken");
+    const MAX_ATTEMPTS = 6; // tolerate real-world slow/flaky college wifi, not just one quick retry
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        const res = await api.post("/student/exam/submit",
+          { autoSubmitted: auto },
+          { headers: { Authorization: `Bearer ${token}` }, timeout: 20000 }
+        );
+        // Genuine, server-confirmed success - only NOW is it safe to tell
+        // the student they're done and stop the exam timer/state entirely.
+        isSubmittedRef.current = true;
+        submittingRef.current = false;
+        localStorage.removeItem(LS_SLOT_END_KEY);
+        if (res.data?.scores) {
+          localStorage.setItem("examScores", JSON.stringify(res.data.scores));
+        }
+        navigate("/student/result");
+        return;
+      } catch (err) {
+        // No response at all (dropped connection, request never completed,
+        // request timed out) is exactly the "poor college wifi" case this
+        // is meant to survive - worth retrying. A response that DID arrive
+        // but was an error (e.g. already submitted, validation failure)
+        // won't fix itself by retrying, so don't loop on those.
+        const isNetworkFailure = !err.response;
+        const isLastAttempt = attempt === MAX_ATTEMPTS;
+        if (!isNetworkFailure || isLastAttempt) {
+          submittingRef.current = false;
+          setSubmitError(
+            isNetworkFailure
+              ? "We couldn't reach the server to confirm your submission. This usually means a weak or dropped internet connection. Please check your connection and tap Retry — your answers already saved are safe."
+              : "Something went wrong while submitting. Please tap Retry."
+          );
+          return;
+        }
+        // Wait longer on each successive attempt before trying again.
+        await new Promise(r => setTimeout(r, attempt * 2000));
       }
-      navigate("/student/result");
-    } catch {
-      navigate("/student/result");
     }
   }, [navigate]);
 
@@ -520,7 +553,13 @@ export default function ExamPage() {
     } catch { /* best effort */ }
 
     tickRef.current = setInterval(() => {
+      // Stop entirely once genuinely submitted, and pause (skip this tick,
+      // don't re-trigger the deadline countdown) while a submit attempt is
+      // already retrying - the retry loop will finish on its own; we don't
+      // want the timer racing to fire ANOTHER auto-submit trigger on top
+      // of one that's already in flight.
       if (isSubmittedRef.current) { clearInterval(tickRef.current); return; }
+      if (submittingRef.current) return;
       const deadline = slotEndMsRef.current;
       if (deadline === null) return;
       const adjustedNow = Date.now() - clockDriftMsRef.current;
@@ -612,7 +651,7 @@ export default function ExamPage() {
   useEffect(() => {
     if (fsPrompt || loading) return;
     const resync = async () => {
-      if (isSubmittedRef.current) return;
+      if (isSubmittedRef.current || submittingRef.current) return;
       try {
         const token = localStorage.getItem("studentToken");
         const res = await api.get("/student/exam/time-status", { headers: { Authorization: `Bearer ${token}` } });
@@ -649,7 +688,7 @@ export default function ExamPage() {
   useEffect(() => {
     if (fsPrompt || loading) return;
     const handleViolation = async () => {
-      if (isSubmittedRef.current || fsTransitionRef.current) return;
+      if (isSubmittedRef.current || submittingRef.current || fsTransitionRef.current) return;
       setViolations(v => v + 1);
       submitExam(true);
     };
@@ -822,9 +861,25 @@ export default function ExamPage() {
   if (fsPrompt) return <FullscreenGateway onEnter={enterFullscreen} />;
 
   if (submitting) return (
-    <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: "var(--eb-bg)" }}>
-      <span className="spinner w-10 h-10 border-4 mb-4" />
-      <p className="text-sm" style={{ color: "var(--eb-text-muted)" }}>Submitting your exam…</p>
+    <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center" style={{ background: "var(--eb-bg)" }}>
+      {submitError ? (
+        <>
+          <svg className="w-10 h-10 mb-4" fill="none" viewBox="0 0 24 24" stroke="var(--eb-danger)" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <p className="text-sm max-w-sm mb-5" style={{ color: "var(--eb-text)" }}>{submitError}</p>
+          <button
+            onClick={() => { setSubmitting(false); setSubmitError(null); submitExam(lastAutoRef.current); }}
+            className="eb-btn !w-auto !py-2.5 !px-6 text-sm">
+            Retry Submission
+          </button>
+        </>
+      ) : (
+        <>
+          <span className="spinner w-10 h-10 border-4 mb-4" />
+          <p className="text-sm" style={{ color: "var(--eb-text-muted)" }}>Submitting your exam…</p>
+        </>
+      )}
     </div>
   );
 

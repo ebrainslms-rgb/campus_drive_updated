@@ -10,6 +10,7 @@ import com.ecobrains.lms.repository.ActivityLogRepository;
 import com.ecobrains.lms.repository.CourseRepository;
 import com.ecobrains.lms.repository.QuestionRepository;
 import com.ecobrains.lms.repository.StudentAnswerRepository;
+import com.ecobrains.lms.repository.StudentRepository;
 import com.ecobrains.lms.security.CurrentUser;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
@@ -21,6 +22,8 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -37,15 +40,17 @@ public class QuestionService {
     private final AdminLogRepository adminLogRepository;
     private final StudentAnswerRepository studentAnswerRepository;
     private final ActivityLogRepository activityLogRepository;
+    private final StudentRepository studentRepository;
 
     public QuestionService(QuestionRepository questionRepository, CourseRepository courseRepository,
                             AdminLogRepository adminLogRepository, StudentAnswerRepository studentAnswerRepository,
-                            ActivityLogRepository activityLogRepository) {
+                            ActivityLogRepository activityLogRepository, StudentRepository studentRepository) {
         this.questionRepository = questionRepository;
         this.courseRepository = courseRepository;
         this.adminLogRepository = adminLogRepository;
         this.studentAnswerRepository = studentAnswerRepository;
         this.activityLogRepository = activityLogRepository;
+        this.studentRepository = studentRepository;
     }
 
     @Transactional
@@ -56,17 +61,33 @@ public class QuestionService {
                 .orElseThrow(() -> ApiException.badRequest("Selected course is inactive or not found."));
         if (!course.isActive()) throw ApiException.badRequest("Cannot upload questions: selected course is inactive.");
 
-        // Block ONLY while a student is genuinely mid-exam right now on this
-        // course (started, not yet submitted) - their answers aren't final
-        // yet and still need the current Question rows to exist.
-        if (studentAnswerRepository.existsLiveExamForCourse(courseId)) {
+        // Block ONLY while a scheduled exam's own time window genuinely
+        // contains right now, for a student enrolled in THIS course -
+        // purely server-side and time-based, never tied to any individual
+        // student's started/submitted flags (those can get stuck forever
+        // if a submit request fails).
+        //
+        // Deliberately goes through Student.course, NOT Exam.course: the
+        // real "Schedule New Exam" admin form has no course field at all,
+        // so Exam.course is essentially always null in practice. Student's
+        // own course is required (never null), which is what makes this
+        // check actually work against real data.
+        //
+        // Uses explicit IST, matching every other exam-timing check in this
+        // codebase (StudentAuthService, StudentExamService) - the server's
+        // own default timezone is not guaranteed to be IST (commonly UTC on
+        // cloud VPS deployments), and exam start/end times are stored as
+        // IST wall-clock values.
+        LocalDateTime now = LocalDateTime.now(ZoneId.of("Asia/Kolkata"));
+        if (studentRepository.existsOngoingExamForCourse(courseId, now)) {
+            List<String> codes = studentRepository.ongoingExamCodesForCourse(courseId, now);
             throw ApiException.conflict(
-                    "Cannot replace questions for \"" + course.getName() + "\": a student is currently taking an " +
-                    "exam using the current question set. Please wait until the drive finishes."
+                    "Cannot replace questions for \"" + course.getName() + "\": an exam is currently in progress " +
+                    "for this course (code: " + String.join(", ", codes) + "). Please wait until it finishes."
             );
         }
 
-        // No live exam remains, so any StudentAnswer rows still present at
+        // No ongoing exam remains, so any StudentAnswer rows still present at
         // this point belong only to already-completed students. Their score
         // and registration data live on the Student row itself and are
         // completely unaffected by this - only the specific per-question
