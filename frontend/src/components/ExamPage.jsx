@@ -1028,6 +1028,25 @@ export default function ExamPage() {
 
         <div className="flex items-center gap-2.5 flex-shrink-0">
           <span className="hidden md:inline text-xs" style={{ color: "var(--eb-text-muted)" }}>{answeredCount}/{questions.length}</span>
+
+          {/* Manual submit is intentionally kept in the header. It becomes
+              visible only when the admin-configured manual-submit window opens.
+              This button is completely independent from Previous / Next below. */}
+          {manualSubmitAvailable && (
+            <button
+              onClick={handleManualSubmit}
+              disabled={locked}
+              className="flex items-center gap-1.5 px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all hover:scale-[1.02] disabled:opacity-50"
+              style={{ background: "linear-gradient(135deg, #10B981, #059669)", color: "#fff" }}
+              title="Submit your exam"
+            >
+              Submit Exam
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </button>
+          )}
+
           <ThemeToggle />
           <ProfilePopup profile={profile} />
         </div>
@@ -1108,25 +1127,15 @@ export default function ExamPage() {
 
             <span className="sm:hidden text-xs font-mono" style={{ color: "var(--eb-text-faint)" }}>{page + 1} / {totalPages}</span>
 
-            {/* Manual submit - only rendered once inside the final 5
-                minutes (manualSubmitAvailable). Outside that window,
-                reaching the last page shows an info note instead of a
-                button - never auto-submits, never blocks Next/Previous. */}
-            {manualSubmitAvailable ? (
-              <button onClick={handleManualSubmit} disabled={locked}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all hover:scale-[1.02] disabled:opacity-50"
-                style={{ background: "linear-gradient(135deg, #10B981, #059669)", color: "#fff" }}>
-                Submit Exam
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-              </button>
-            ) : (
-              <button onClick={() => goToPage(page + 1)} disabled={page === totalPages - 1}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all hover:scale-[1.01] disabled:opacity-30"
-                style={{ background: "linear-gradient(135deg, #F97316, #EA580C)", color: "#fff" }}>
-                Next
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
-              </button>
-            )}
+            {/* Next is intentionally independent from manual submission.
+                It must remain visible on every page until the last page,
+                even after the manual-submit window has opened. */}
+            <button onClick={() => goToPage(page + 1)} disabled={page === totalPages - 1}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all hover:scale-[1.01] disabled:opacity-30"
+              style={{ background: "linear-gradient(135deg, #F97316, #EA580C)", color: "#fff" }}>
+              Next
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+            </button>
           </div>
 
           <div className="flex items-center justify-between text-xs pb-4" style={{ color: "var(--eb-text-faint)" }}>
