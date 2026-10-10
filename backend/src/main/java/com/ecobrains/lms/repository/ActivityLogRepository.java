@@ -11,6 +11,10 @@ import java.util.List;
 
 public interface ActivityLogRepository extends JpaRepository<ActivityLog, Long> {
 
+    @Modifying
+    @Query("DELETE FROM ActivityLog a WHERE a.student.id = :studentId")
+    void deleteByStudentId(@Param("studentId") Long studentId);
+
     /**
      * Clears the dangling question reference on ActivityLog rows for a
      * course being re-uploaded, WITHOUT deleting the rows themselves -

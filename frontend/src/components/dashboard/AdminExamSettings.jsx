@@ -19,8 +19,8 @@ function SettingRow({ field, onSaved }) {
     try {
       await axios.put(`/admin/exam-settings/${field.key}`, { value: String(n) });
       onSaved();
-    } catch {
-      setError('Save failed. Please try again.');
+    } catch (err) {
+      setError(err.response?.data?.message || 'Save failed. Please try again.');
     } finally { setBusy(false); }
   };
 
@@ -28,12 +28,18 @@ function SettingRow({ field, onSaved }) {
     <div className="rounded-2xl border p-5 space-y-3 max-w-md" style={{ background: 'var(--eb-surface)', borderColor: 'var(--eb-border)' }}>
       <div>
         <h4 className="text-sm font-semibold" style={{ color: 'var(--eb-text)' }}>{field.label}</h4>
+        {field.key === 'MANUAL_SUBMIT_WINDOW_MINUTES' && (
+          <p className="text-xs mt-1 leading-relaxed" style={{ color: 'var(--eb-text-muted)' }}>
+            Students see the Submit button only in the last {(() => { const n = parseInt(value, 10); return n >= 1 && n <= 30 ? n : '…'; })()} minute(s) of the exam.
+            Allowed: 1 to 30 minutes. The timing can be changed only when no examination is currently running.
+          </p>
+        )}
         {field.isCustom && (
           <span className="text-[10px] font-mono px-2 py-0.5 rounded-full inline-block mt-1" style={{ background: 'var(--eb-success-soft)', color: 'var(--eb-success)' }}>Custom</span>
         )}
       </div>
       <div className="flex items-center gap-2">
-        <input type="number" min="1" value={value} onChange={e => setValue(e.target.value)}
+        <input type="number" min="1" max="30" step="1" value={value} onChange={e => setValue(e.target.value)}
           className="w-24 text-sm px-3 py-2 rounded-lg"
           style={{ background: 'var(--eb-surface-muted)', border: '1px solid var(--eb-border)', color: 'var(--eb-text)' }} />
         <span className="text-xs" style={{ color: 'var(--eb-text-muted)' }}>minutes</span>
@@ -75,7 +81,7 @@ export default function AdminExamSettings() {
       <div>
         <h1 className="text-xl font-bold" style={{ color: 'var(--eb-text)' }}>Exam Settings</h1>
         <p className="text-sm mt-1" style={{ color: 'var(--eb-text-muted)' }}>
-          Controls exam-taking behaviour across every drive. Changes apply immediately to students currently taking an exam.
+          Controls the manual-submit timing for upcoming exams. Once any scheduled examination is running, this setting is locked until all running exams are completed.
         </p>
       </div>
 

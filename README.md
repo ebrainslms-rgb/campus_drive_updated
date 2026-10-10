@@ -176,12 +176,13 @@ Check the services:
 docker compose ps
 ```
 
-The application contains three services:
+The application contains four services:
 
 ```text
 frontend
 backend
 mysql
+redis
 ```
 
 Stop the application:
@@ -401,6 +402,31 @@ The browser keeps `CURRENT` and `LAST_SYNCED` answers locally. Moving between pa
 
 Active Redis sessions are checkpointed to MySQL every 15 minutes by default, processing dirty sessions in bounded batches. Manual submission and deadline submission finalize the latest browser/Redis state in MySQL before clearing Redis and browser exam storage.
 
+### Admin and portal login
+
+- Admin login uses the configured `ADMIN_USERNAME` and `ADMIN_PASSWORD` values.
+- Docker Compose also supplies local defaults when those variables are missing or blank.
+- Admin authentication is separate from portal-user passwords and does not depend on the `portal_users.password_hash` value.
+- User login remains database-backed and uses BCrypt.
+- The portal login screen opens in **User Login** mode by default.
+- Only the configured `ADMIN_URL_KEY` is a valid Admin URL.
+
+For a clean local rebuild:
+
+```text
+docker compose down --remove-orphans
+docker compose build --no-cache
+docker compose up -d
+```
+
+Open the Admin portal at:
+
+```text
+http://localhost/{ADMIN_URL_KEY}/admin
+```
+
+If `.env` is not present, the Compose defaults are `admin@echobrains.com` / `admin123` and `eb-admin-2026`.
+
 ### Exam login window
 
 The previous 15-minute first-login cutoff is removed. A student can enter the exam while the scheduled exam window is active. The absolute exam end time remains authoritative, so a late entrant receives only the remaining time.
@@ -418,3 +444,52 @@ The previous 15-minute first-login cutoff is removed. A student can enter the ex
 ### Existing systemd backend deployment
 
 If Spring Boot is run directly by systemd instead of inside Docker, run the Redis service from this compose file (`docker compose up -d redis`) so Redis is available at `127.0.0.1:6379`. The backend's default Redis host is `localhost`; production values can be overridden with `REDIS_HOST`, `REDIS_PORT`, and `REDIS_PASSWORD`.
+
+---
+
+## Exam Reliability / Redis Flow
+
+The live examination answer state is maintained in Redis. The browser keeps a local copy and continuously synchronizes the latest answers to Redis. MySQL is the permanent result store and is used for controlled checkpoints and final result persistence.
+
+### Final 10 Seconds
+
+- The final **10 seconds** are the lock/final-answer window.
+- Question navigation and answer changes are disabled.
+- The browser sends the complete latest answer snapshot to Redis using `POST /api/student/exam/save-progress`.
+- The browser does **not** use the normal `/submit` endpoint for automatic expiry.
+- The backend finalizer reads Redis and performs the authoritative Redis -> MySQL finalization.
+- If MySQL temporarily fails, Redis is retained and the server retries; the Redis state is not deleted because of a MySQL failure.
+- Manual Submit and automatic expiry ultimately use the same safe Redis -> MySQL finalization path.
+- Manual Submit displays a confirmation dialog before it records the submission request.
+
+### Student Login
+
+Student exam login requires only:
+
+```text
+Email OR 10-digit Mobile Number
+Exam Code
+```
+
+The college is resolved from the exam code and is not an editable login field.
+
+### Docker Volumes
+
+The Compose file intentionally keeps two named volumes:
+
+```text
+mysql_data  -> MySQL permanent database data
+redis_data  -> Redis live exam state / AOF persistence
+```
+
+Both existed in the V16 deployment and are retained. Redis persistence is important because an active exam must survive a Redis container restart without losing the latest exam state.
+
+To intentionally start completely fresh locally:
+
+```bash
+docker compose down --remove-orphans -v
+docker compose build --no-cache
+docker compose up -d
+```
+
+Do not remove the volumes during a live examination.

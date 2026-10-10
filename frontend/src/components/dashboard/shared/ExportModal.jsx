@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import ExportFileNameField from './ExportFileNameField.jsx';
+import ExportColumnPicker from './ExportColumnPicker.jsx';
+import { downloadErrorMessage } from '../../../utils/download';
 
 /**
  * Export confirmation with three explicit scope choices - Current Page,
@@ -7,24 +10,52 @@ import React, { useState, useEffect } from 'react';
  * never silently default to "only the visible page" for a large dataset.
  *
  * `options`: [{ key: 'CURRENT_PAGE', label: 'Current Page', count: 50 }, ...]
- * `onConfirm(selectedKey)` - caller decides what each key means server-side.
+ * `onConfirm(selectedKey, fileName, columns)` - caller decides what each key means server-side.
+ *   fileName is '' when the user left it empty (server then uses the default).
+ *   columns = picked column keys in click order ([] = default columns).
+ * `columnType` - 'DRIVE' | 'STUDENTS' (which column list and shortcuts to show).
+ * `courseFiltered` / `collegeFiltered` - filters that make Course / College redundant
+ *   as default columns ("All Students" ignores the course filter).
+ * `getDefaultFilename(selectedKey)` - optional async; returns the server's default
+ *   name for that option so it can be shown as a hint.
  */
-export default function ExportModal({ open, onClose, onConfirm, options = [], filterSummary = [] }) {
+export default function ExportModal({ open, onClose, onConfirm, options = [], filterSummary = [], getDefaultFilename,
+                                     columnType = 'DRIVE', courseFiltered = false, collegeFiltered = false }) {
   const [selected, setSelected] = useState(null);
   const [downloading, setDownloading] = useState(false);
+  const [fileName, setFileName] = useState('');
+  const [defaultName, setDefaultName] = useState('');
+  const [loadingDefault, setLoadingDefault] = useState(false);
+  const [error, setError] = useState('');
+  const [columns, setColumns] = useState([]);
 
   useEffect(() => {
-    if (open) setSelected(null); // never carry over a previous selection
+    if (open) { setSelected(null); setFileName(''); setDefaultName(''); setError(''); setColumns([]); } // never carry over a previous export
   }, [open]);
+
+  // The default name depends on the option (e.g. "All Students" ignores the course filter).
+  useEffect(() => {
+    if (!open || !selected || !getDefaultFilename) return;
+    let cancelled = false;
+    setLoadingDefault(true);
+    Promise.resolve(getDefaultFilename(selected))
+      .then(name => { if (!cancelled) setDefaultName(name || ''); })
+      .catch(() => { if (!cancelled) setDefaultName(''); })
+      .finally(() => { if (!cancelled) setLoadingDefault(false); });
+    return () => { cancelled = true; };
+  }, [open, selected, getDefaultFilename]);
 
   if (!open) return null;
 
   const handleDownload = async () => {
     if (!selected) return;
     setDownloading(true);
+    setError('');
     try {
-      await onConfirm(selected);
+      await onConfirm(selected, fileName.trim(), columns);
       onClose();
+    } catch (e) {
+      setError(await downloadErrorMessage(e));
     } finally {
       setDownloading(false);
     }
@@ -33,7 +64,7 @@ export default function ExportModal({ open, onClose, onConfirm, options = [], fi
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4"
       style={{ background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(4px)' }}>
-      <div className="w-full max-w-sm rounded-2xl border shadow-2xl p-6 space-y-5"
+      <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-2xl border shadow-2xl p-6 space-y-5"
         style={{ background: 'var(--eb-surface)', borderColor: 'var(--eb-border)' }}>
         <div>
           <h3 className="text-base font-semibold" style={{ color: 'var(--eb-text)' }}>Export Students</h3>
@@ -79,6 +110,20 @@ export default function ExportModal({ open, onClose, onConfirm, options = [], fi
             ))}
           </div>
         )}
+
+        <div className="rounded-xl border p-4" style={{ borderColor: 'var(--eb-border)' }}>
+          {/* "All Students" ignores filters, so a course filter does not apply there. */}
+          <ExportColumnPicker type={columnType}
+            courseFiltered={courseFiltered && selected !== 'ALL_STUDENTS'}
+            collegeFiltered={collegeFiltered}
+            value={columns} onChange={setColumns} disabled={downloading} />
+        </div>
+
+        <ExportFileNameField value={fileName} onChange={setFileName} defaultName={defaultName}
+          loadingDefault={loadingDefault} disabled={downloading}
+          hint={!getDefaultFilename && !fileName ? 'Leave empty to use the default name: Course - College code - Date.' : undefined} />
+
+        {error && <p role="alert" className="text-sm" style={{ color: 'var(--eb-danger)' }}>{error}</p>}
 
         <div className="flex gap-3">
           <button onClick={onClose} disabled={downloading} className="eb-btn-outline !py-2.5">Cancel</button>

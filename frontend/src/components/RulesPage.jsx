@@ -382,10 +382,10 @@ export default function RulesPage() {
               all on desktop (branding lived only in the left BrandPanel);
               added here per request so it's visible right above the Exam
               Details card regardless of screen width. */}
-         <div className="relative flex items-center min-h-[42px]">
+         <div className="relative flex items-center min-h-[42px] lg:flex">
 
   {/* Logo — left */}
-  <img src="/logo.png" alt="EchoBrains" className="h-7 w-auto object-contain flex-shrink-0" draggable={false} />
+  <img src="/logo.png" alt="EchoBrains" className="hidden lg:block h-7 w-auto object-contain flex-shrink-0" draggable={false} />
 
   {/* Welcome message — center */}
   <div className="absolute left-1/2 -translate-x-1/2 text-center whitespace-nowrap">

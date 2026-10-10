@@ -4,6 +4,7 @@ import com.ecobrains.lms.dto.response.CollegeOverviewResponse;
 import com.ecobrains.lms.dto.response.DriveSummaryResponse;
 import com.ecobrains.lms.service.CollegeOverviewService;
 import org.springframework.data.domain.Page;
+import com.ecobrains.lms.dto.response.PageResponse;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -29,21 +30,21 @@ public class CollegeOverviewController {
     /** Same endpoint powers both the "latest 4" carousel (size=4) and the
      *  "View All Drives" page (larger size + page navigation). */
     @GetMapping("/drives")
-    public ResponseEntity<Page<DriveSummaryResponse>> drives(
+    public ResponseEntity<PageResponse<DriveSummaryResponse>> drives(
             @PathVariable Long collegeId,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "4") int size) {
-        return ResponseEntity.ok(collegeOverviewService.drives(collegeId, page, size));
+        return ResponseEntity.ok(PageResponse.of(collegeOverviewService.drives(collegeId, page, size)));
     }
 
     /** Top Performers (small size, score desc) and "View All Students" (larger size) - same endpoint. */
     @GetMapping("/students")
-    public ResponseEntity<Page<com.ecobrains.lms.dto.response.DriveStudentResponse>> students(
+    public ResponseEntity<PageResponse<com.ecobrains.lms.dto.response.DriveStudentResponse>> students(
             @PathVariable Long collegeId,
             @RequestParam(required = false) Integer year,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "desc") String sort) {
-        return ResponseEntity.ok(collegeOverviewService.students(collegeId, year, page, size, sort));
+        return ResponseEntity.ok(PageResponse.of(collegeOverviewService.students(collegeId, year, page, size, sort)));
     }
 }

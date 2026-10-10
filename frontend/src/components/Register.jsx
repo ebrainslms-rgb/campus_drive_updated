@@ -34,6 +34,23 @@ const FALLBACK_QUALIFICATIONS = ["B.E/B.Tech", "M.E/M.Tech", "MCA"];
 const CURRENT_YEAR = new Date().getFullYear();
 const FALLBACK_YEARS = [CURRENT_YEAR - 1, CURRENT_YEAR, CURRENT_YEAR + 1, CURRENT_YEAR + 2].map(String);
 
+
+function useRegistrationSettings() {
+  const [settings,setSettings]=useState({genderEnabled:true,dobEnabled:true,qualificationEnabled:true,yearEnabled:true,academicScoreEnabled:true,academicScoreType:"BOTH",otherCampusDriveEnabled:true});
+  useEffect(()=>{ let cancelled=false; api.get("/admin/registration-settings/public").then(r=>{if(!cancelled&&r.data)setSettings(r.data)}).catch(()=>{}); return ()=>{cancelled=true}; },[]);
+  return settings;
+}
+
+function useCustomRegistrationFields() {
+  const [fields, setFields] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    api.get("/admin/registration-fields/public").then(res => { if (!cancelled) setFields(Array.isArray(res.data) ? res.data : []); }).catch(() => { if (!cancelled) setFields([]); });
+    return () => { cancelled = true; };
+  }, []);
+  return fields;
+}
+
 function useDropdownOptions() {
   const [options, setOptions] = useState({
     DOMAIN: FALLBACK_DOMAINS,
@@ -500,6 +517,8 @@ export default function Register() {
   const activeCourses = useCourses();
   const colleges = useColleges();
   const dropdownOptions = useDropdownOptions();
+  const registrationSettings = useRegistrationSettings();
+  const customFields = useCustomRegistrationFields();
   const yearOptions = [...dropdownOptions.YEAR_OF_PASSING, "Other"];
   const domainOptions = [...dropdownOptions.DOMAIN, "Other"];
   const qualificationOptions = [...dropdownOptions.QUALIFICATION, "Other"];
@@ -508,10 +527,10 @@ export default function Register() {
   const isDark = resolvedTheme === "dark";
 
   const [form, setForm] = useState({
-    name: "", email: "", phone: "", collegeName: "",
+    name: "", email: "", phone: "", gender: "", collegeName: "",
     district: "", state: "", dateOfBirth: "",
     domain: "", qualification: "", aggregate: "", academicScoreType: "PERCENTAGE",
-    yearOfPassing: "", course: "", selectedInCampusDrive: "",
+    yearOfPassing: "", course: "", selectedInCampusDrive: "", customFields: {},
   });
 
   const [selectedCollege, setSelectedCollege] = useState(null);
@@ -524,6 +543,13 @@ export default function Register() {
   const [showIncompleteModal, setShowIncompleteModal] = useState(false);
   const [showMismatchModal, setShowMismatchModal] = useState(false);
   const [registered, setRegistered] = useState(false);
+
+  useEffect(() => {
+    if (registrationSettings.academicScoreType === "CGPA" || registrationSettings.academicScoreType === "PERCENTAGE") {
+      setForm(prev => ({ ...prev, academicScoreType: registrationSettings.academicScoreType }));
+    }
+    if (!registrationSettings.academicScoreEnabled) setForm(prev => ({ ...prev, aggregate: "" }));
+  }, [registrationSettings.academicScoreType, registrationSettings.academicScoreEnabled]);
 
   const set = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -559,8 +585,9 @@ export default function Register() {
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) validationErrors.email = "Enter a valid email address.";
     if (!form.phone.trim()) validationErrors.phone = "Phone number is required.";
     else if (!/^\d{10}$/.test(form.phone.trim())) validationErrors.phone = "Phone number must be exactly 10 digits.";
-    if (!form.dateOfBirth) validationErrors.dateOfBirth = "Date of birth is required.";
-    else {
+    if (registrationSettings.genderEnabled && !form.gender) validationErrors.gender = "Please select gender.";
+    if (registrationSettings.dobEnabled && !form.dateOfBirth) validationErrors.dateOfBirth = "Date of birth is required.";
+    else if (registrationSettings.dobEnabled) {
       const dob = new Date(form.dateOfBirth);
       const today = new Date();
       const minimumAgeDate = new Date(today.getFullYear() - 18, today.getMonth(), today.getDate());
@@ -571,20 +598,28 @@ export default function Register() {
     if (!form.state.trim()) validationErrors.state = "Please select a valid college from the list.";
     if (!form.domain) validationErrors.domain = "Please select your domain / branch.";
     else if (form.domain === "Other" && !customDomain.trim()) validationErrors.domain = "Please enter your domain / branch.";
-    if (!form.qualification) validationErrors.qualification = "Please select your qualification.";
-    else if (form.qualification === "Other" && !customQualification.trim()) validationErrors.qualification = "Please enter your qualification.";
-    if (form.aggregate === "") validationErrors.aggregate = form.academicScoreType === "CGPA" ? "CGPA is required." : "Aggregate percentage is required.";
-    else if (form.academicScoreType === "CGPA") {
-      if (isNaN(form.aggregate) || Number(form.aggregate) < 0 || Number(form.aggregate) > 10) validationErrors.aggregate = "Enter a value between 0 and 10.";
-    } else if (isNaN(form.aggregate) || Number(form.aggregate) < 0 || Number(form.aggregate) > 100) validationErrors.aggregate = "Enter a value between 0 and 100.";
-    if (!form.yearOfPassing) validationErrors.yearOfPassing = "Please select year of passing.";
+    if (registrationSettings.qualificationEnabled && !form.qualification) validationErrors.qualification = "Please select your qualification.";
+    else if (registrationSettings.qualificationEnabled && form.qualification === "Other" && !customQualification.trim()) validationErrors.qualification = "Please enter your qualification.";
+    if (registrationSettings.academicScoreEnabled) {
+      if (form.aggregate === "") validationErrors.aggregate = form.academicScoreType === "CGPA" ? "CGPA is required." : "Aggregate percentage is required.";
+      else if (form.academicScoreType === "CGPA") {
+        if (isNaN(form.aggregate) || Number(form.aggregate) < 0 || Number(form.aggregate) > 10) validationErrors.aggregate = "Enter a value between 0 and 10.";
+      } else if (isNaN(form.aggregate) || Number(form.aggregate) < 0 || Number(form.aggregate) > 100) validationErrors.aggregate = "Enter a value between 0 and 100.";
+    }
+    if (registrationSettings.yearEnabled && !form.yearOfPassing) validationErrors.yearOfPassing = "Please select year of passing.";
     else if (form.yearOfPassing === "Other") {
       const typed = parseInt(customYear, 10);
       if (!customYear.trim() || isNaN(typed)) validationErrors.yearOfPassing = "Please enter a valid year.";
       else if (typed < CURRENT_YEAR - 1) validationErrors.yearOfPassing = `Year of passing cannot be earlier than ${CURRENT_YEAR - 1}.`;
     }
     if (!form.course) validationErrors.course = "Please select a domain.";
-    if (!form.selectedInCampusDrive) validationErrors.selectedInCampusDrive = "Please specify whether you are selected in another campus drive.";
+    if (registrationSettings.otherCampusDriveEnabled && !form.selectedInCampusDrive) validationErrors.selectedInCampusDrive = "Please specify whether you are selected in another campus drive.";
+    customFields.forEach(field => {
+      const value = form.customFields?.[field.fieldKey] || "";
+      if (field.required && !value.trim()) validationErrors[`custom_${field.fieldKey}`] = `${field.label} is required.`;
+      if (field.type === "NUMBER" && value && Number.isNaN(Number(value))) validationErrors[`custom_${field.fieldKey}`] = `Enter a valid ${field.label}.`;
+      if (field.type === "DROPDOWN" && value && !field.options.includes(value)) validationErrors[`custom_${field.fieldKey}`] = `Select a valid ${field.label}.`;
+    });
     return validationErrors;
   };
 
@@ -605,6 +640,7 @@ export default function Register() {
         email: form.email.trim(),
         dob: form.dateOfBirth,
         phoneNumber: form.phone.trim(),
+        gender: form.gender,
         collegeName: form.collegeName.trim(),
         location: form.district.trim(),
         state: form.state.trim(),
@@ -615,6 +651,7 @@ export default function Register() {
         yearOfPassing: parseInt(form.yearOfPassing === "Other" ? customYear : form.yearOfPassing, 10),
         courseName: form.course,
         selectedInCampusDrive: form.selectedInCampusDrive,
+        customFields: form.customFields,
       });
 
       setRegistered(true);
@@ -691,10 +728,14 @@ export default function Register() {
                       onChange={(e) => set("phone", e.target.value.replace(/\D/g, ""))} />
                   </Field>
 
-                  <Field label="Date of Birth" icon={<IconCalendar />} error={errors.dateOfBirth}>
+                  {registrationSettings.genderEnabled && <DropField label="Gender" icon={<IconUser />} error={errors.gender}
+                    value={form.gender} onChange={(e) => set("gender", e.target.value)} disabled={loading}
+                    placeholder="Select gender" options={["Male", "Female", "Other"]} />}
+
+                  {registrationSettings.dobEnabled && <Field label="Date of Birth" icon={<IconCalendar />} error={errors.dateOfBirth}>
                     <input type="date" value={form.dateOfBirth} disabled={loading} className="eb-register-input"
                       onChange={(e) => set("dateOfBirth", e.target.value)} />
-                  </Field>
+                  </Field>}
                 </div>
 
                 <Section>Academic Details</Section>
@@ -734,11 +775,11 @@ export default function Register() {
                     </Field>
                   )}
 
-                  <DropField label="Highest Qualification" icon={<IconGraduate />} error={errors.qualification}
+                  {registrationSettings.qualificationEnabled && <DropField label="Highest Qualification" icon={<IconGraduate />} error={errors.qualification}
                     value={form.qualification} onChange={(e) => { set("qualification", e.target.value); if (e.target.value !== "Other") setCustomQualification(""); }}
-                    disabled={loading} placeholder="Select qualification" options={qualificationOptions} />
+                    disabled={loading} placeholder="Select qualification" options={qualificationOptions} />}
 
-                  {form.qualification === "Other" && (
+                  {registrationSettings.qualificationEnabled && form.qualification === "Other" && (
                     <Field label="Enter Qualification" icon={<IconGraduate />} error={null}>
                       <input type="text" value={customQualification} disabled={loading}
                         placeholder="e.g. Diploma"
@@ -747,27 +788,26 @@ export default function Register() {
                     </Field>
                   )}
 
-                  <Field label={form.academicScoreType === "CGPA" ? "CGPA" : "Aggregate %"} icon={<IconPercent />} error={errors.aggregate}>
+                  {registrationSettings.academicScoreEnabled && <Field label={form.academicScoreType === "CGPA" ? "CGPA" : "Aggregate %"} icon={<IconPercent />} error={errors.aggregate}>
                     <div style={{ display: "flex", gap: "8px", width: "100%" }}>
-                      <select value={form.academicScoreType} disabled={loading}
+                      {registrationSettings.academicScoreType === "BOTH" ? <select value={form.academicScoreType} disabled={loading}
                         className="eb-register-select" style={{ width: "132px", flexShrink: 0 }}
                         onChange={(e) => { set("academicScoreType", e.target.value); set("aggregate", ""); }}>
-                        <option value="PERCENTAGE">Percentage</option>
-                        <option value="CGPA">CGPA</option>
-                      </select>
+                        <option value="PERCENTAGE">Percentage</option><option value="CGPA">CGPA</option>
+                      </select> : <div style={{width:"132px",flexShrink:0,display:"flex",alignItems:"center",padding:"0 10px",fontSize:"13px",color:"var(--register-muted)"}}>{registrationSettings.academicScoreType === "CGPA" ? "CGPA" : "Percentage"}</div>}
                       <input type="number" min="0" max={form.academicScoreType === "CGPA" ? "10" : "100"} step="0.01"
                         value={form.aggregate} disabled={loading}
                         placeholder={form.academicScoreType === "CGPA" ? "e.g. 8.50" : "e.g. 78.60"}
                         className="eb-register-input" style={{ paddingLeft: "14px", flex: 1, minWidth: 0 }}
                         onChange={(e) => set("aggregate", e.target.value)} />
                     </div>
-                  </Field>
+                  </Field>}
 
-                  <DropField label="Year of Passing" icon={<IconCalendar />} error={errors.yearOfPassing}
+                  {registrationSettings.yearEnabled && <DropField label="Year of Passing" icon={<IconCalendar />} error={errors.yearOfPassing}
                     value={form.yearOfPassing} onChange={(e) => { set("yearOfPassing", e.target.value); if (e.target.value !== "Other") setCustomYear(""); }}
-                    disabled={loading} placeholder="Select year" options={yearOptions} />
+                    disabled={loading} placeholder="Select year" options={yearOptions} />}
 
-                  {form.yearOfPassing === "Other" && (
+                  {registrationSettings.yearEnabled && form.yearOfPassing === "Other" && (
                     <Field label="Enter Year" icon={<IconCalendar />} error={null}>
                       <input type="number" value={customYear} disabled={loading}
                         min={CURRENT_YEAR - 1} placeholder={`e.g. ${CURRENT_YEAR - 1} or later`}
@@ -787,13 +827,21 @@ export default function Register() {
                     </Field>
                   </div>
 
-                  <div className="eb-register-full">
+                  {registrationSettings.otherCampusDriveEnabled && <div className="eb-register-full">
                     <DropField label="Selected in any other campus drive" icon={<IconBranch />}
                       error={errors.selectedInCampusDrive} value={form.selectedInCampusDrive}
                       onChange={(e) => set("selectedInCampusDrive", e.target.value)}
                       disabled={loading} placeholder="Select option" options={["Yes", "No"]} />
-                  </div>
+                  </div>}
                 </div>
+
+                {customFields.length > 0 && <><Section>Additional Details</Section><div className="eb-register-grid">{customFields.map(field => {
+                  const value = form.customFields?.[field.fieldKey] || "";
+                  const error = errors[`custom_${field.fieldKey}`];
+                  const update = next => setForm(prev => ({ ...prev, customFields: { ...prev.customFields, [field.fieldKey]: next } }));
+                  if (field.type === "DROPDOWN") return <DropField key={field.fieldKey} label={field.label} error={error} value={value} onChange={e => update(e.target.value)} disabled={loading} placeholder={`Select ${field.label}`} options={field.options || []} />;
+                  return <Field key={field.fieldKey} label={field.label} error={error}><input type={field.type === "DATE" ? "date" : field.type === "NUMBER" ? "number" : "text"} value={value} disabled={loading} className="eb-register-input" onChange={e => update(e.target.value)} /></Field>;
+                })}</div></>}
 
                 {apiError && <div className="eb-register-api-error"><IconAlert /><span>{apiError}</span></div>}
 

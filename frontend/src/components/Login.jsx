@@ -47,6 +47,10 @@ function IconMail() {
     </svg>
   );
 }
+function IconPhone() {
+  return (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.8 19.8 0 01-8.63-3.07 19.5 19.5 0 01-6-6A19.8 19.8 0 012.12 4.2 2 2 0 014.11 2h3a2 2 0 012 1.72c.12.9.33 1.78.62 2.63a2 2 0 01-.45 2.11L8 9.73a16 16 0 006.27 6.27l1.27-1.28a2 2 0 012.11-.45c.85.29 1.73.5 2.63.62A2 2 0 0122 16.92z" /></svg>);
+}
+
 function IconKey() {
   return (
     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -463,7 +467,7 @@ export default function Login() {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [examCode, setExamCode] = useState("");
   const [errors, setErrors] = useState({});
   const [apiError, setApiError] = useState("");
@@ -564,8 +568,13 @@ export default function Login() {
 
   const validate = () => {
     const validationErrors = {};
-    if (!email.trim()) validationErrors.email = "Email address is required.";
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) validationErrors.email = "Enter a valid email address.";
+    const value = identifier.trim();
+    if (!value) validationErrors.identifier = "Email address or mobile number is required.";
+    else if (/^\d+$/.test(value)) {
+      if (!/^\d{10}$/.test(value)) validationErrors.identifier = "Mobile number must be exactly 10 digits.";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      validationErrors.identifier = "Enter a valid email address or 10-digit mobile number.";
+    }
     if (!examCode.trim()) validationErrors.examCode = "Exam code is required.";
     else if (examCode.trim().length !== 7) validationErrors.examCode = "Exam code must be exactly 7 characters.";
     else if (!resolvedCollege) validationErrors.examCode = "Please enter a valid, currently-active exam code.";
@@ -581,7 +590,7 @@ export default function Login() {
     setApiError("");
     try {
       const response = await api.post("/student/auth/login", {
-        email: email.trim(),
+        identifier: identifier.trim(),
         examCode: examCode.trim().toUpperCase(),
         collegeName: resolvedCollege.collegeName,
       });
@@ -603,6 +612,10 @@ export default function Login() {
       }, 1200);
 
     } catch (error) {
+      if (error.response?.status === 429) {
+        setApiError("Many students are signing in at the same time. Please wait a few seconds and try again.");
+        return;
+      }
       if (error.response?.data?.isSubmitted) {
         navigate("/student/result");
         return;
@@ -648,10 +661,10 @@ export default function Login() {
               <p className="eb-login-description">Enter your credentials to continue</p>
 
               <form onSubmit={handleSubmit} noValidate className="eb-login-form">
-                <Field label="Email Address" icon={<IconMail />} error={errors.email}>
-                  <input type="email" value={email} disabled={loading} autoComplete="email"
-                    placeholder="Enter your email" className="eb-login-input"
-                    onChange={(e) => { setEmail(e.target.value); setErrors((p) => ({ ...p, email: "" })); setApiError(""); }} />
+                <Field label="Email or Mobile Number" icon={<IconMail />} error={errors.identifier}>
+                  <input type="text" value={identifier} disabled={loading} autoComplete="username"
+                    placeholder="Enter email or 10-digit mobile number" className="eb-login-input"
+                    onChange={(e) => { setIdentifier(e.target.value); setErrors((p) => ({ ...p, identifier: "" })); setApiError(""); }} />
                 </Field>
 
                 <Field label="Exam Code" icon={<IconKey />} error={errors.examCode}>

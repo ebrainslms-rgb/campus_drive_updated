@@ -12,12 +12,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 
 /**
- * Preserves the original app's extra "admin URL key" layer: every /api/admin/**
- * call (other than the login endpoint itself, which only needs username+password)
- * must also present the shared x-admin-url-key header/query param configured in
- * application.properties (app.admin.url-key). This mirrors the frontend's
- * /{key}/admin route convention and adds a second, independently-rotatable secret
- * on top of the JWT.
+ * Requires the configured Admin URL key on protected Admin API calls, including Admin login.
  */
 @Component
 public class AdminUrlKeyFilter extends OncePerRequestFilter {
@@ -35,20 +30,18 @@ public class AdminUrlKeyFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
 
         boolean isAdminApi = path.startsWith("/api/admin/");
-        boolean isLogin = path.equals("/api/admin/auth/login");
-        // /api/admin/config is reachable with only a valid JWT (no url-key) so a
-        // session can recover after the key is rotated server-side - see ConfigController.
+        // /api/admin/config remains available to recover a rotated URL key.
         boolean isConfig = path.equals("/api/admin/config");
-        // These are deliberately public (used on the unauthenticated student
-        // registration/login/rules pages), mirroring the original Express router where
-        // adminAuth was only wired in *after* the /public sub-route.
+        boolean isLogin = path.equals("/api/admin/auth/login");
+        // Public registration and lookup endpoints.
         boolean isPublicLookup = path.equals("/api/admin/colleges/public") || path.equals("/api/admin/courses/public")
                 || path.startsWith("/api/admin/banners/public/")
                 || path.equals("/api/admin/site-content/public")
                 || path.equals("/api/admin/dropdown-options/public")
-                || path.equals("/api/admin/exam-settings/public");
+                || path.equals("/api/admin/exam-settings/public")
+                || path.equals("/api/admin/registration-settings/public") || path.equals("/api/admin/registration-fields/public");
 
-        if (isAdminApi && !isLogin && !isConfig && !isPublicLookup) {
+        if (isAdminApi && !isConfig && !isLogin && !isPublicLookup) {
             String provided = request.getHeader("x-admin-url-key");
             if (provided == null) provided = request.getParameter("adminKey");
 

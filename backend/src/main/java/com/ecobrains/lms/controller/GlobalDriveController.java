@@ -3,6 +3,7 @@ package com.ecobrains.lms.controller;
 import com.ecobrains.lms.dto.response.DriveSummaryResponse;
 import com.ecobrains.lms.service.DriveService;
 import org.springframework.data.domain.Page;
+import com.ecobrains.lms.dto.response.PageResponse;
 import java.util.List;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -35,16 +36,16 @@ public class GlobalDriveController {
     }
 
     @GetMapping
-    public ResponseEntity<Page<DriveSummaryResponse>> allDrives(
+    public ResponseEntity<PageResponse<DriveSummaryResponse>> allDrives(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "50") int size) {
-        return ResponseEntity.ok(driveService.allDrives(page, size));
+        return ResponseEntity.ok(PageResponse.of(driveService.allDrives(page, size)));
     }
 
     @GetMapping("/completed")
-public ResponseEntity<Page<DriveSummaryResponse>> completedDrives(
+public ResponseEntity<PageResponse<DriveSummaryResponse>> completedDrives(
         @RequestParam(defaultValue = "1") int page,
         @RequestParam(defaultValue = "50") int size) {
-    return ResponseEntity.ok(driveService.completedDrives(page, size));
+    return ResponseEntity.ok(PageResponse.of(driveService.completedDrives(page, size)));
 }
 }

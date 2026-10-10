@@ -51,6 +51,9 @@ public class StudentExamController {
     @PostMapping("/submit")
     public ResponseEntity<SubmitExamResponse> submit(@RequestBody(required = false) SubmitExamRequest request, HttpServletRequest httpRequest) {
         boolean autoSubmitted = request != null && Boolean.TRUE.equals(request.autoSubmitted());
-        return ResponseEntity.ok(studentExamService.submitExam(CurrentUser.studentId(), autoSubmitted, request, httpRequest));
+        if (!autoSubmitted) {
+            return ResponseEntity.ok(studentExamService.requestFinalization(CurrentUser.studentId(), request, httpRequest));
+        }
+        return ResponseEntity.ok(studentExamService.submitExam(CurrentUser.studentId(), true, request, httpRequest));
     }
 }

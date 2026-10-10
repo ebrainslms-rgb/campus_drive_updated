@@ -125,7 +125,8 @@ security_conf_content() {
 # Per-IP throttles. Rates are generous because a whole lab often shares one
 # public NAT IP. Tight enough to slow password stuffing, not exam auto-save.
 limit_req_zone $binary_remote_addr zone=login:10m rate=30r/m;
-limit_req_zone $binary_remote_addr zone=api:10m rate=50r/s;
+limit_req_zone $binary_remote_addr zone=student:10m rate=20r/s;
+limit_req_zone $binary_remote_addr zone=api:10m rate=100r/s;
 limit_conn_zone $binary_remote_addr zone=perip:10m;
 limit_req_status 429;
 limit_conn_status 429;
@@ -277,22 +278,22 @@ common_locations() {
     }
 
     location = /api/student/auth/login {
-        limit_req zone=login burst=40 nodelay;
-        limit_conn perip 50;
+        limit_req zone=student burst=500;
+        limit_conn perip 600;
         include snippets/proxy-params.conf;
         proxy_pass http://127.0.0.1:__BACKEND_PORT__/api/student/auth/login;
     }
 
     location = /api/student/auth/register {
-        limit_req zone=login burst=20 nodelay;
-        limit_conn perip 50;
+        limit_req zone=student burst=500;
+        limit_conn perip 600;
         include snippets/proxy-params.conf;
         proxy_pass http://127.0.0.1:__BACKEND_PORT__/api/student/auth/register;
     }
 
     location /api/ {
-        limit_req zone=api burst=100 nodelay;
-        limit_conn perip 200;
+        limit_req zone=api burst=1000 nodelay;
+        limit_conn perip 1000;
         include snippets/proxy-params.conf;
         proxy_pass http://127.0.0.1:__BACKEND_PORT__/api/;
     }
@@ -711,4 +712,3 @@ main() {
 }
 
 main "$@"
-

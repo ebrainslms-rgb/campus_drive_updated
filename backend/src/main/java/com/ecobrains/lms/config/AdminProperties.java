@@ -19,7 +19,7 @@ public class AdminProperties {
     }
 
     public void setUsername(String username) {
-        this.username = username;
+        this.username = clean(username);
     }
 
     public String getPassword() {
@@ -27,7 +27,9 @@ public class AdminProperties {
     }
 
     public void setPassword(String password) {
-        this.password = password;
+        // Only strip line-ending characters (e.g. a Windows CRLF .env file);
+        // leading/trailing spaces could be a deliberate part of a password.
+        this.password = password == null ? null : password.replaceAll("[\\r\\n]+$", "").replaceAll("^[\\r\\n]+", "");
     }
 
     public String getUrlKey() {
@@ -35,6 +37,11 @@ public class AdminProperties {
     }
 
     public void setUrlKey(String urlKey) {
-        this.urlKey = urlKey;
+        this.urlKey = clean(urlKey);
+    }
+
+    /** Removes surrounding whitespace, including a stray \r from CRLF .env files. */
+    private static String clean(String value) {
+        return value == null ? null : value.strip();
     }
 }

@@ -3,6 +3,9 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
+ARG VITE_ADMIN_URL_KEY=eb-admin-2026
+ENV VITE_ADMIN_URL_KEY=$VITE_ADMIN_URL_KEY
+
 COPY package*.json ./
 
 RUN npm ci

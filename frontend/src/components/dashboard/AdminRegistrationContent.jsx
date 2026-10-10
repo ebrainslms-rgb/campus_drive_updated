@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import axios from '../../utils/api';
+import AdminBanners from './AdminBanners.jsx';
 
 const Ic = {
   Back: () => (<svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/></svg>),
@@ -166,6 +167,24 @@ function DropdownListCard({ listKey, label, hint }) {
   );
 }
 
+
+function RegistrationControlCard(){
+ const [s,setS]=useState(null); const [busy,setBusy]=useState(false); const [msg,setMsg]=useState('');
+ const load=()=>axios.get('/admin/registration-settings').then(r=>setS(r.data)).catch(e=>setMsg(e.response?.data?.message||'Could not load settings.'));
+ useEffect(()=>{load()},[]);
+ const save=async()=>{setBusy(true);setMsg('');try{await axios.put('/admin/registration-settings',s);setMsg('Registration settings saved successfully.')}catch(e){setMsg(e.response?.data?.message||'Could not save settings.')}finally{setBusy(false)}};
+ if(!s)return <div className="rounded-2xl border p-4 text-sm" style={{borderColor:'var(--eb-border)',color:'var(--eb-text-muted)'}}>Loading registration controls…</div>;
+ const toggle=(k)=>setS(x=>({...x,[k]:!x[k]}));
+ return <div id="settings" className="rounded-2xl border p-4 space-y-4" style={{background:'var(--eb-surface)',borderColor:'var(--eb-border)'}}>
+  <div><h3 className="text-sm font-semibold" style={{color:'var(--eb-text)'}}>Exam Registration Page Control</h3><p className="text-xs mt-1" style={{color:'var(--eb-text-faint)'}}>Core registration fields required by the application cannot be disabled. These settings control optional student information.</p></div>
+  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+   {[['genderEnabled','Gender'],['dobEnabled','Date of Birth'],['qualificationEnabled','Highest Qualification'],['yearEnabled','Year of Passing'],['otherCampusDriveEnabled','Selected in Any Other Campus Drive']].map(([k,l])=><label key={k} className="flex items-center justify-between rounded-xl p-3" style={{background:'var(--eb-surface-muted)'}}><span className="text-sm" style={{color:'var(--eb-text)'}}>{l}</span><input type="checkbox" checked={!!s[k]} onChange={()=>toggle(k)}/></label>)}
+  </div>
+  <div className="rounded-xl p-3" style={{background:'var(--eb-surface-muted)'}}><div className="text-sm font-medium mb-2" style={{color:'var(--eb-text)'}}>Academic Score</div><select className="eb-input" value={s.academicScoreType} onChange={e=>setS({...s,academicScoreType:e.target.value,academicScoreEnabled:e.target.value!=="HIDDEN"})}><option value="PERCENTAGE">Percentage</option><option value="CGPA">CGPA</option><option value="BOTH">Both</option><option value="HIDDEN">Hidden</option></select></div>
+  {msg&&<p className="text-xs" style={{color:'var(--eb-success)'}}>{msg}</p>}<button className="eb-btn !w-auto !px-4" disabled={busy} onClick={save}>{busy?'Saving…':'Save Registration Settings'}</button>
+ </div>;
+}
+
 /**
  * Admin Registration Page Content - reachable via Profile drawer -> "Edit
  * Registration Page Data" (below "Edit Exam Banners", same placement
@@ -174,53 +193,57 @@ function DropdownListCard({ listKey, label, hint }) {
  * Registration dropdown option lists (Domain, Qualification, Year of
  * Passing). Both pages read these live via public endpoints.
  */
+function CustomFieldsCard() {
+  const [fields, setFields] = useState([]);
+  const [form, setForm] = useState({ label: '', type: 'TEXT', required: false, enabled: true, options: '' });
+  const [editing, setEditing] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const load = useCallback(() => axios.get('/admin/registration-fields').then(r => setFields(r.data || [])).catch(e => setError(e.response?.data?.message || 'Could not load fields.')), []);
+  useEffect(() => { load(); }, [load]);
+
+  const reset = () => { setEditing(null); setForm({ label: '', type: 'TEXT', required: false, enabled: true, options: '' }); setError(''); };
+  const edit = field => { setEditing(field.id); setForm({ label: field.label, type: field.type, required: field.required, enabled: field.enabled, options: (field.options || []).join('\n') }); setError(''); };
+  const save = async () => {
+    if (!form.label.trim()) { setError('Field name is required.'); return; }
+    if (form.type === 'DROPDOWN' && !form.options.trim()) { setError('Add at least one dropdown option.'); return; }
+    setBusy(true); setError('');
+    const body = { label: form.label.trim(), type: form.type, required: form.required, enabled: form.enabled, options: form.type === 'DROPDOWN' ? form.options.split('\n').map(x => x.trim()).filter(Boolean) : [], sortOrder: editing ? undefined : fields.length };
+    try { if (editing) await axios.put(`/admin/registration-fields/${editing}`, body); else await axios.post('/admin/registration-fields', body); await load(); reset(); }
+    catch (e) { setError(e.response?.data?.message || 'Could not save field.'); } finally { setBusy(false); }
+  };
+  const remove = async id => { setBusy(true); setError(''); try { await axios.delete(`/admin/registration-fields/${id}`); await load(); } catch (e) { setError(e.response?.data?.message || 'Could not delete field.'); } finally { setBusy(false); } };
+
+  return <div className="rounded-2xl border p-4 space-y-4" style={{ background: 'var(--eb-surface)', borderColor: 'var(--eb-border)' }}>
+    <div><h3 className="text-sm font-semibold" style={{ color: 'var(--eb-text)' }}>Additional Registration Fields</h3><p className="text-xs mt-1" style={{ color: 'var(--eb-text-faint)' }}>Add simple text, number, date or dropdown fields. Existing student data is kept when a field is disabled.</p></div>
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <input className="eb-input" placeholder="Field name" value={form.label} onChange={e => setForm({ ...form, label: e.target.value })} />
+      <select className="eb-input" value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}><option value="TEXT">Text</option><option value="NUMBER">Number</option><option value="DATE">Date</option><option value="DROPDOWN">Dropdown</option></select>
+      {form.type === 'DROPDOWN' && <textarea className="eb-input sm:col-span-2 min-h-24" placeholder="One option per line" value={form.options} onChange={e => setForm({ ...form, options: e.target.value })} />}
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.required} onChange={e => setForm({ ...form, required: e.target.checked })} /> Required</label>
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.enabled} onChange={e => setForm({ ...form, enabled: e.target.checked })} /> Visible on registration</label>
+    </div>
+    {error && <p className="text-xs" style={{ color: 'var(--eb-danger)' }}>{error}</p>}
+    <div className="flex gap-2"><button className="eb-btn !w-auto !px-4" disabled={busy} onClick={save}>{busy ? 'Saving…' : editing ? 'Update Field' : 'Add Field'}</button>{editing && <button className="px-4 rounded-xl text-sm" onClick={reset}>Cancel</button>}</div>
+    <div className="space-y-2">{fields.map(field => <div key={field.id} className="rounded-xl p-3 flex items-center justify-between gap-3" style={{ background: 'var(--eb-surface-muted)' }}><div><div className="text-sm font-medium" style={{ color: 'var(--eb-text)' }}>{field.label}</div><div className="text-[11px] mt-1" style={{ color: 'var(--eb-text-faint)' }}>{field.type} · {field.required ? 'Required' : 'Optional'} · {field.enabled ? 'Visible' : 'Hidden'}{field.type === 'DROPDOWN' ? ` · ${field.options.length} options` : ''}</div></div><div className="flex gap-2"><button className="text-xs font-medium" style={{ color: 'var(--eb-blue)' }} onClick={() => edit(field)}>Edit</button><button className="text-xs" style={{ color: 'var(--eb-danger)' }} onClick={() => remove(field.id)} disabled={busy}>Delete</button></div></div>)}</div>
+  </div>;
+}
+
 export default function AdminRegistrationContent() {
   const { adminKey } = useParams();
   const navigate = useNavigate();
   const [fields, setFields] = useState(null);
-
-  const loadFields = useCallback(() => {
-    axios.get('/admin/site-content')
-      .then(res => setFields(Array.isArray(res.data) ? res.data : []))
-      .catch(() => setFields([]));
-  }, []);
-
+  const loadFields = useCallback(() => axios.get('/admin/site-content').then(res => setFields(Array.isArray(res.data) ? res.data : [])).catch(() => setFields([])), []);
   useEffect(() => { loadFields(); }, [loadFields]);
 
-  return (
-    <div className="space-y-6">
-      <button onClick={() => navigate(`/${adminKey}/admin/overview`)} className="flex items-center gap-1.5 text-sm font-medium" style={{ color: 'var(--eb-blue)' }}>
-        <Ic.Back /> Back to Overview
-      </button>
-
-      <div>
-        <h1 className="text-xl font-bold" style={{ color: 'var(--eb-text)' }}>Registration Page Content</h1>
-        <p className="text-sm mt-1" style={{ color: 'var(--eb-text-muted)' }}>
-          Manage the text shown on the left side of the Register and Login pages, and the dropdown options
-          students choose from during registration (Domain, Qualification, Year of Passing). Both pages
-          reflect changes made here immediately — no code changes needed.
-        </p>
-      </div>
-
-      <div>
-        <h3 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--eb-text-faint)' }}>Brand Panel Text</h3>
-        {fields === null ? (
-          <p className="text-sm" style={{ color: 'var(--eb-text-muted)' }}>Loading…</p>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {fields.map(f => <TextFieldRow key={f.key} field={f} onSaved={loadFields} />)}
-          </div>
-        )}
-      </div>
-
-      <div>
-        <h3 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--eb-text-faint)' }}>Registration Dropdown Lists</h3>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <DropdownListCard listKey="DOMAIN" label="Domain / Branch" hint="Shown on the Registration form." />
-          <DropdownListCard listKey="QUALIFICATION" label="Highest Qualification" hint="Shown on the Registration form." />
-          <DropdownListCard listKey="YEAR_OF_PASSING" label="Year of Passing" hint="Students can still type a custom year via 'Other' on the form itself." />
-        </div>
-      </div>
-    </div>
-  );
+  return <div className="space-y-6">
+    <button onClick={() => navigate(`/${adminKey}/admin/overview`)} className="flex items-center gap-1.5 text-sm font-medium" style={{ color: 'var(--eb-blue)' }}><Ic.Back /> Back to Overview</button>
+    <div><h1 className="text-xl font-bold" style={{ color: 'var(--eb-text)' }}>Registration Page Settings</h1><p className="text-sm mt-1" style={{ color: 'var(--eb-text-muted)' }}>Manage the complete student registration experience from one place.</p></div>
+    <RegistrationControlCard />
+    <CustomFieldsCard />
+    <div><h3 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--eb-text-faint)' }}>Portal Name & Page Content</h3>{fields === null ? <p className="text-sm" style={{ color: 'var(--eb-text-muted)' }}>Loading…</p> : <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{fields.map(f => <TextFieldRow key={f.key} field={f} onSaved={loadFields} />)}</div>}</div>
+    <div><h3 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--eb-text-faint)' }}>Registration Dropdown Lists</h3><div className="grid grid-cols-1 lg:grid-cols-3 gap-4"><DropdownListCard listKey="DOMAIN" label="Domain / Branch" hint="Shown on the registration form." /><DropdownListCard listKey="QUALIFICATION" label="Highest Qualification" hint="Shown on the registration form." /><DropdownListCard listKey="YEAR_OF_PASSING" label="Year of Passing" hint="Shown on the registration form." /></div></div>
+    <AdminBanners embedded />
+  </div>;
 }

@@ -1,9 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useAdminAuth } from '../../context/AdminContext';
 import axios from '../../utils/api';
 import EmptyState from './shared/EmptyState.jsx';
 import { RowSkeleton } from './shared/LoadingSkeleton.jsx';
 import Pagination from './shared/Pagination.jsx';
+import StudentFormModal from './StudentFormModal.jsx';
+import BulkStudentModal from './BulkStudentModal.jsx';
+import ExportFileNameField from './shared/ExportFileNameField.jsx';
+import ExportColumnPicker from './shared/ExportColumnPicker.jsx';
+import { filenameFromDisposition, saveBlob, downloadErrorMessage } from '../../utils/download';
 
 const PAGE_SIZE = 50;
 
@@ -21,17 +27,39 @@ function formatDate(value) {
   return new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-function ExportModal({ open, onClose, onExport, allCount, filteredCount, filteredSummary }) {
+function ExportModal({ open, onClose, onExport, allCount, filteredCount, filteredSummary, getDefaultFilename, collegeFilterActive, courseFilterActive }) {
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [fileName, setFileName] = useState('');
+  const [defaultName, setDefaultName] = useState('');
+  const [loadingDefault, setLoadingDefault] = useState(false);
+  const [error, setError] = useState('');
 
-  useEffect(() => { if (open) setSelected(null); }, [open]);
+  const [columns, setColumns] = useState([]);   // click order = Excel column order; [] = defaults
+
+  useEffect(() => { if (open) { setSelected(null); setFileName(''); setDefaultName(''); setError(''); setColumns([]); } }, [open]);
+
+  // Default name depends on the option: "all students" ignores the college filter.
+  useEffect(() => {
+    if (!open || !selected) return;
+    let cancelled = false;
+    setLoadingDefault(true);
+    getDefaultFilename(selected)
+      .then(name => { if (!cancelled) setDefaultName(name || ''); })
+      .catch(() => { if (!cancelled) setDefaultName(''); })
+      .finally(() => { if (!cancelled) setLoadingDefault(false); });
+    return () => { cancelled = true; };
+  }, [open, selected, getDefaultFilename]);
+
   if (!open) return null;
 
   const submit = async () => {
     if (!selected) return;
     setLoading(true);
-    try { await onExport(selected); onClose(); } finally { setLoading(false); }
+    setError('');
+    try { await onExport(selected, fileName.trim(), columns); onClose(); }
+    catch (e) { setError(await downloadErrorMessage(e)); }
+    finally { setLoading(false); }
   };
 
   const options = [
@@ -41,7 +69,7 @@ function ExportModal({ open, onClose, onExport, allCount, filteredCount, filtere
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ background: 'rgba(15,23,42,0.58)', backdropFilter: 'blur(4px)' }}>
-      <div className="w-full max-w-lg rounded-2xl border shadow-2xl p-6 space-y-5" style={{ background: 'var(--eb-surface)', borderColor: 'var(--eb-border)' }}>
+      <div className="w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-2xl border shadow-2xl p-6 space-y-5" style={{ background: 'var(--eb-surface)', borderColor: 'var(--eb-border)' }}>
         <div>
           <h3 className="text-lg font-semibold" style={{ color: 'var(--eb-text)' }}>Export Students</h3>
           <p className="text-sm mt-1" style={{ color: 'var(--eb-text-muted)' }}>Choose the complete dataset you want to export.</p>
@@ -65,6 +93,16 @@ function ExportModal({ open, onClose, onExport, allCount, filteredCount, filtere
             );
           })}
         </div>
+        <div className="rounded-xl border p-4" style={{ borderColor: 'var(--eb-border)' }}>
+          {/* The college filter only applies to "filtered" exports. */}
+          <ExportColumnPicker type="STUDENTS"
+            collegeFiltered={selected === 'ALL_FILTERED' && !!collegeFilterActive}
+            courseFiltered={selected === 'ALL_FILTERED' && !!courseFilterActive}
+            value={columns} onChange={setColumns} disabled={loading} />
+        </div>
+        <ExportFileNameField value={fileName} onChange={setFileName} defaultName={defaultName}
+          loadingDefault={loadingDefault} disabled={loading} />
+        {error && <p role="alert" className="text-sm" style={{ color: 'var(--eb-danger)' }}>{error}</p>}
         <div className="flex gap-3 pt-1">
           <button onClick={onClose} disabled={loading} className="eb-btn-outline !py-2.5">Cancel</button>
           <button onClick={submit} disabled={!selected || loading} className="eb-btn !py-2.5">
@@ -81,15 +119,28 @@ export default function StudentsView() {
   const navigate = useNavigate();
   const [colleges, setColleges] = useState([]);
   const [years, setYears] = useState([]);
-  const [collegeId, setCollegeId] = useState('');
+  const { courses = [] } = useAdminAuth();
+  // Filters can arrive pre-applied from another page (College page "View all" / count cards).
+  const [searchParams] = useSearchParams();
+  const [collegeId, setCollegeId] = useState(() => searchParams.get('collegeId') || '');
+  const [courseId, setCourseId] = useState(() => searchParams.get('courseId') || '');
   const [year, setYear] = useState('');
   const [month, setMonth] = useState('');
-  const [testStatus, setTestStatus] = useState('');
+  const [testStatus, setTestStatus] = useState(() => {
+    const v = searchParams.get('testStatus');
+    return v === 'REGISTERED' || v === 'TEST_WRITTEN' ? v : '';
+  });
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showExport, setShowExport] = useState(false);
+
+  useEffect(() => { const id = setTimeout(() => setSearch(searchInput.trim()), 350); return () => clearTimeout(id); }, [searchInput]);
+  const [showStudentForm, setShowStudentForm] = useState(false);
+  const [showBulk, setShowBulk] = useState(false);
 
   useEffect(() => {
     axios.get('/admin/colleges', { params: { all: true } })
@@ -99,11 +150,13 @@ export default function StudentsView() {
 
   const params = useMemo(() => ({
     collegeId: collegeId || undefined,
+    courseId: courseId || undefined,
     year: year || undefined,
     month: month || undefined,
     testStatus: testStatus || undefined,
+    search: search.trim() || undefined,
     page,
-  }), [collegeId, year, month, testStatus, page]);
+  }), [collegeId, courseId, year, month, testStatus, search, page]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -128,37 +181,57 @@ export default function StudentsView() {
   };
 
   const selectedCollege = colleges.find(c => String(c.id) === String(collegeId));
+  const selectedCourse = courses.find(c => String(c.id) === String(courseId));
   const selectedYear = year ? String(year) : '';
   const selectedMonth = month ? new Date(2000, Number(month) - 1, 1).toLocaleString('en-US', { month: 'long' }) : '';
   const filterSummary = [
     selectedCollege?.name ? `College: ${selectedCollege.name}` : null,
+    selectedCourse?.name ? `Course: ${selectedCourse.name}` : null,
     selectedYear ? `Year: ${selectedYear}` : null,
     selectedMonth ? `Month: ${selectedMonth}` : null,
-    testStatus === 'REGISTERED' ? 'Status: Registered only' : null,
+    testStatus === 'REGISTERED' ? 'Status: Test not written' : null,
     testStatus === 'TEST_WRITTEN' ? 'Status: Test written only' : null,
+    search.trim() ? `Search: ${search.trim()}` : null,
   ].filter(Boolean).join(' · ');
 
-  const handleExport = async (mode) => {
+  const handleExport = async (mode, fileName, columns = []) => {
+    const filtered = mode === 'ALL_FILTERED';
     const res = await axios.get('/admin/students/export', {
       params: {
         mode,
-        collegeId: mode === 'ALL_FILTERED' ? (collegeId || undefined) : undefined,
-        year: mode === 'ALL_FILTERED' ? (year || undefined) : undefined,
-        month: mode === 'ALL_FILTERED' ? (month || undefined) : undefined,
-        testStatus: mode === 'ALL_FILTERED' ? (testStatus || undefined) : undefined,
+        collegeId: filtered ? (collegeId || undefined) : undefined,
+        courseId: filtered ? (courseId || undefined) : undefined,
+        year: filtered ? (year || undefined) : undefined,
+        month: filtered ? (month || undefined) : undefined,
+        testStatus: filtered ? (testStatus || undefined) : undefined,
+        search: filtered ? (search.trim() || undefined) : undefined,
+        filename: fileName || undefined,
+        // Columns picked in the popup, in click order; none = default columns.
+        columns: columns.length ? columns.join(',') : undefined,
       },
       responseType: 'blob',
     });
-    const disposition = res.headers?.['content-disposition'] || '';
-    const match = disposition.match(/filename\*?=(?:UTF-8''|")?([^";]+)"?/i);
-    const filename = match?.[1] ? decodeURIComponent(match[1]) : `students-${mode.toLowerCase()}.xlsx`;
-    const url = URL.createObjectURL(new Blob([res.data]));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
+    const filename = filenameFromDisposition(res.headers?.['content-disposition'], `students-${mode.toLowerCase()}.xlsx`);
+    saveBlob(new Blob([res.data]), filename);
   };
+
+  // Default name for the popup hint, built from the applied filters (same rule as the real export):
+  // All Domains - College code (or All Colleges) - Month-Year / Year / today [- Status] [- Search].
+  const getDefaultExportFilename = useCallback(async (mode) => {
+    const filtered = mode === 'ALL_FILTERED';
+    const res = await axios.get('/admin/students/export/filename', {
+      params: {
+        mode,
+        collegeId: filtered ? (collegeId || undefined) : undefined,
+        courseId: filtered ? (courseId || undefined) : undefined,
+        year: filtered ? (year || undefined) : undefined,
+        month: filtered ? (month || undefined) : undefined,
+        testStatus: filtered ? (testStatus || undefined) : undefined,
+        search: filtered ? (search.trim() || undefined) : undefined,
+      },
+    });
+    return res.data?.filename || '';
+  }, [collegeId, courseId, year, month, testStatus, search]);
 
   return (
     <div className="space-y-5">
@@ -167,21 +240,31 @@ export default function StudentsView() {
           <h1 className="text-xl font-bold" style={{ color: 'var(--eb-text)' }}>Students</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--eb-text-muted)' }}>Browse and export every registered student.</p>
         </div>
-        <button
-  onClick={() => setShowExport(true)}
-  className="eb-btn !w-auto px-6 py-3 flex items-center gap-2 flex-shrink-0"
->
-  <Ic.Download /> Export
-</button>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button onClick={() => setShowStudentForm(true)} className="eb-btn !w-auto px-4 py-3">+ Add Student</button>
+          <button onClick={() => setShowBulk(true)} className="eb-btn-outline !w-auto px-4 py-3">Bulk Upload</button>
+          <button onClick={() => setShowExport(true)} className="eb-btn !w-auto px-4 py-3 flex items-center gap-2 flex-shrink-0"><Ic.Download /> Export</button>
+        </div>
       </div>
 
       <div className="rounded-2xl p-4 border" style={{ background: 'var(--eb-surface)', borderColor: 'var(--eb-border)' }}>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="mb-3">
+          <label className="eb-label">Search Student</label>
+          <input value={searchInput} onChange={e => { setSearchInput(e.target.value); setPage(1); }} placeholder="Search by name, email, mobile number or course..." className="eb-input text-sm" />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           <div>
             <label className="eb-label">College Name</label>
             <select value={collegeId} onChange={updateFilter(setCollegeId)} className="eb-input text-sm">
               <option value="">All Colleges</option>
               {colleges.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="eb-label">Course</label>
+            <select value={courseId} onChange={updateFilter(setCourseId)} className="eb-input text-sm">
+              <option value="">All Courses</option>
+              {courses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div>
@@ -208,10 +291,10 @@ export default function StudentsView() {
             </select>
           </div>
         </div>
-        {(collegeId || year || month || testStatus) && (
+        {(collegeId || courseId || year || month || testStatus || searchInput) && (
           <div className="flex items-center justify-between gap-3 mt-3 pt-3 border-t" style={{ borderColor: 'var(--eb-border)' }}>
             <p className="text-xs" style={{ color: 'var(--eb-text-muted)' }}>Current filter: <span className="font-medium" style={{ color: 'var(--eb-text)' }}>{filterSummary}</span></p>
-            <button onClick={() => { setCollegeId(''); setYear(''); setMonth(''); setTestStatus(''); setPage(1); }} className="text-xs font-semibold" style={{ color: 'var(--eb-blue)' }}>Clear filters</button>
+            <button onClick={() => { setCollegeId(''); setCourseId(''); setYear(''); setMonth(''); setTestStatus(''); setSearchInput(''); setSearch(''); setPage(1); }} className="text-xs font-semibold" style={{ color: 'var(--eb-blue)' }}>Clear filters</button>
           </div>
         )}
       </div>
@@ -258,9 +341,11 @@ export default function StudentsView() {
 
       {!error && data && <Pagination page={data.page || page} totalPages={data.totalPages || 0} onChange={setPage} />}
 
-      <ExportModal open={showExport} onClose={() => setShowExport(false)} onExport={handleExport}
+      <ExportModal open={showExport} onClose={() => setShowExport(false)} onExport={handleExport} getDefaultFilename={getDefaultExportFilename} collegeFilterActive={!!collegeId} courseFilterActive={!!courseId}
         allCount={data?.totalAllStudents ?? 0} filteredCount={data?.totalStudents ?? 0}
         filteredSummary={filterSummary || 'No filters selected — this is the complete student list.'} />
+      <StudentFormModal open={showStudentForm} onClose={() => setShowStudentForm(false)} onSaved={load} />
+      <BulkStudentModal open={showBulk} onClose={() => setShowBulk(false)} onComplete={load} />
     </div>
   );
 }

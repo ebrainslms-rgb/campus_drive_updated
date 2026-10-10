@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, NavLink, useParams, useLocation, useNavigate } from 'react-router-dom';
 
 import { useAdminAuth } from '../../context/AdminContext';
@@ -12,11 +12,12 @@ import CollegeOverview from './CollegeOverview.jsx';
 import AllDrives from './AllDrives.jsx';
 import AllDrivesGlobal from './AllDrivesGlobal.jsx';
 import DriveDetails from './DriveDetails.jsx';
-import AdminBanners from './AdminBanners.jsx';
+import ShortlistExport from './ShortlistExport.jsx';
 import AdminRegistrationContent from './AdminRegistrationContent.jsx';
 import AdminExamSettings from './AdminExamSettings.jsx';
 import StudentDetails from './StudentDetails.jsx';
 import StudentsView from './StudentsView.jsx';
+import UserControl from './UserControl.jsx';
 
 const NAV_ITEMS = [
   {
@@ -54,6 +55,8 @@ const NAV_ITEMS = [
   },
 ];
 
+const NAV_PERMISSION = { colleges: "EXAM_DRIVE", students: "STUDENT", courses: "COURSE", drives: "EXAM_DRIVE", exams: "EXAM_DRIVE", questions: "QUESTION" };
+
 function SidebarLink({ adminKey, item, onNavigate }) {
   return (
     <NavLink
@@ -75,7 +78,7 @@ function SidebarLink({ adminKey, item, onNavigate }) {
   );
 }
 
-function SidebarContent({ adminKey, onNavigate }) {
+function SidebarContent({ adminKey, onNavigate, can }) {
   return (
     <>
       <div className="h-20 flex items-center px-5 border-b" style={{ borderColor: 'var(--eb-border)' }}>
@@ -83,7 +86,7 @@ function SidebarContent({ adminKey, onNavigate }) {
       </div>
 
       <nav className="flex-1 py-6 px-4 space-y-1 overflow-y-auto">
-        {NAV_ITEMS.map(item => (
+        {NAV_ITEMS.filter(item => !NAV_PERMISSION[item.id] || can(NAV_PERMISSION[item.id], 'READ')).map(item => (
           <SidebarLink key={item.id} adminKey={adminKey} item={item} onNavigate={onNavigate} />
         ))}
       </nav>
@@ -94,12 +97,23 @@ function SidebarContent({ adminKey, onNavigate }) {
 }
 
 export default function AdminDashboard() {
-  const { logoutAdmin, adminEmail } = useAdminAuth();
+  const { logoutAdmin, adminEmail, adminRole, hasPermission } = useAdminAuth();
   const { adminKey } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+
+  useEffect(() => {
+    const path = location.pathname;
+    const restricted = path.includes('/user-control') || path.includes('/registration-content') || path.includes('/banners') || path.includes('/exam-settings') || path.includes('/export-settings');
+    if (adminRole !== 'ADMIN' && restricted) { navigate(`/${adminKey}/admin/overview`, { replace: true }); return; }
+    const routePermissions = [
+      ['/courses', 'COURSE'], ['/questions', 'QUESTION'], ['/students', 'STUDENT'], ['/colleges', 'EXAM_DRIVE'], ['/drives', 'EXAM_DRIVE'], ['/exams', 'EXAM_DRIVE']
+    ];
+    const match = routePermissions.find(([route]) => path.includes(`/admin${route}`));
+    if (adminRole !== 'ADMIN' && match && !hasPermission(match[1], 'READ')) navigate(`/${adminKey}/admin/overview`, { replace: true });
+  }, [location.pathname, adminRole, adminKey, hasPermission, navigate]);
 
   // .includes (not .endsWith) so drill-down routes like /colleges/123/drives/45
   // still correctly show "Colleges" as the current section in the header.
@@ -109,11 +123,15 @@ export default function AdminDashboard() {
   // label, so none of them falls back to showing "Overview" while
   // actually on that page.
   const currentTab = location.pathname.includes('/banners')
-    ? 'Exam Banners'
+    ? 'Registration Page Settings'
     : location.pathname.includes('/registration-content')
-    ? 'Registration Page Content'
+    ? 'Registration Page Settings'
     : location.pathname.includes('/exam-settings')
     ? 'Exam Settings'
+    : location.pathname.includes('/export-settings')
+    ? 'Export Settings'
+    : location.pathname.includes('/user-control')
+    ? 'User Control'
     : NAV_ITEMS.find(i => location.pathname.includes(`/${i.id}`))?.label || 'Overview';
   
 const TAB_SUBTITLES = {
@@ -130,7 +148,7 @@ const currentSubtitle = NAV_ITEMS.find(i => location.pathname.includes(`/${i.id}
 
       {/* Desktop sidebar */}
       <div className="hidden lg:flex w-64 flex-col border-r" style={{ background: 'var(--eb-surface)', borderColor: 'var(--eb-border)' }}>
-        <SidebarContent adminKey={adminKey} />
+        <SidebarContent adminKey={adminKey} can={hasPermission} />
       </div>
 
       {/* Mobile drawer */}
@@ -138,7 +156,7 @@ const currentSubtitle = NAV_ITEMS.find(i => location.pathname.includes(`/${i.id}
         <div className="lg:hidden fixed inset-0 z-50 flex">
           <div className="absolute inset-0 bg-slate-900/40" onClick={() => setMobileNavOpen(false)} />
           <div className="relative w-64 flex flex-col animate-slide-in" style={{ background: 'var(--eb-surface)' }}>
-            <SidebarContent adminKey={adminKey} onNavigate={() => setMobileNavOpen(false)} />
+            <SidebarContent adminKey={adminKey} onNavigate={() => setMobileNavOpen(false)} can={hasPermission} />
           </div>
         </div>
       )}
@@ -172,7 +190,7 @@ const currentSubtitle = NAV_ITEMS.find(i => location.pathname.includes(`/${i.id}
             aria-label="Open profile menu">
             <div className="hidden sm:flex flex-col items-end leading-tight">
               <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{adminEmail || 'Admin'}</span>
-              <span className="text-xs" style={{ color: 'var(--eb-text-muted)' }}>Administrator</span>
+              <span className="text-xs" style={{ color: 'var(--eb-text-muted)' }}>{adminRole === 'ADMIN' ? 'Administrator' : 'Portal User'}</span>
             </div>
             <div className="w-9 h-9 rounded-full flex items-center justify-center font-semibold text-sm text-white dark:text-slate-100 flex-shrink-0"
               style={{ background: 'var(--eb-blue)' }}>
@@ -185,17 +203,18 @@ const currentSubtitle = NAV_ITEMS.find(i => location.pathname.includes(`/${i.id}
       <ProfileDrawer
         open={profileOpen}
         onClose={() => setProfileOpen(false)}
-        title="Admin Profile"
-        roleLabel="Administrator"
+        title={adminRole === 'ADMIN' ? 'Admin Profile' : 'User Profile'}
+        roleLabel={adminRole === 'ADMIN' ? 'Administrator' : 'Portal User'}
+        showSettings={adminRole === 'ADMIN'}
         fields={[
           { label: 'Email', value: adminEmail },
           { label: 'Portal', value: 'EchoBrains Admin Portal' },
         ]}
-        extraLinks={[
-          { label: 'Edit Exam Banners', onClick: () => { setProfileOpen(false); navigate(`/${adminKey}/admin/banners`); } },
-          { label: 'Edit Registration Page Data', onClick: () => { setProfileOpen(false); navigate(`/${adminKey}/admin/registration-content`); } },
+        extraLinks={adminRole === 'ADMIN' ? [
+          { label: 'Registration Page Settings', onClick: () => { setProfileOpen(false); navigate(`/${adminKey}/admin/registration-content`); } },
           { label: 'Exam Settings', onClick: () => { setProfileOpen(false); navigate(`/${adminKey}/admin/exam-settings`); } },
-        ]}
+          { label: 'User Control', onClick: () => { setProfileOpen(false); navigate(`/${adminKey}/admin/user-control`); } },
+        ] : []}
         onLogout={logoutAdmin}
       />
 
@@ -208,11 +227,14 @@ const currentSubtitle = NAV_ITEMS.find(i => location.pathname.includes(`/${i.id}
               <Route path="colleges/:collegeId" element={<CollegeOverview />} />
               <Route path="colleges/:collegeId/drives" element={<AllDrives />} />
               <Route path="colleges/:collegeId/drives/:driveId" element={<DriveDetails />} />
+              <Route path="colleges/:collegeId/drives/:driveId/shortlist" element={<ShortlistExport />} />
               <Route path="drives" element={<AllDrivesGlobal />} />
               <Route path="drives/:driveId" element={<DriveDetails />} />
-              <Route path="banners" element={<AdminBanners />} />
+              <Route path="drives/:driveId/shortlist" element={<ShortlistExport />} />
+              <Route path="banners" element={<Navigate to="../registration-content" replace />} />
               <Route path="registration-content" element={<AdminRegistrationContent />} />
               <Route path="exam-settings" element={<AdminExamSettings />} />
+              <Route path="user-control" element={<UserControl />} />
               <Route path="students" element={<StudentsView />} />
               <Route path="students/:studentId" element={<StudentDetails />} />
               <Route path="courses" element={<CoursesView />} />

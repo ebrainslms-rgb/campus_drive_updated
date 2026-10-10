@@ -19,12 +19,14 @@ public class StudentDetailService {
     private final StudentRepository studentRepository;
     private final StudentAnswerRepository studentAnswerRepository;
     private final SubmissionInfoResolver submissionInfoResolver;
+    private final RegistrationFieldService registrationFieldService;
 
     public StudentDetailService(StudentRepository studentRepository, StudentAnswerRepository studentAnswerRepository,
-                                 SubmissionInfoResolver submissionInfoResolver) {
+                                 SubmissionInfoResolver submissionInfoResolver, RegistrationFieldService registrationFieldService) {
         this.studentRepository = studentRepository;
         this.studentAnswerRepository = studentAnswerRepository;
         this.submissionInfoResolver = submissionInfoResolver;
+        this.registrationFieldService = registrationFieldService;
     }
 
     public StudentDetailResponse get(Long studentId) {
@@ -39,11 +41,13 @@ public class StudentDetailService {
                 ? ChronoUnit.SECONDS.between(s.getStartedAt(), submitEvent.getTimestamp()) : null;
 
         return new StudentDetailResponse(
-                s.getId(), s.getFullName(), s.getEmail(), s.getPhoneNumber(),
+                s.getId(), s.getFullName(), s.getEmail(), s.getPhoneNumber(), s.getGender(), s.getDob(),
+                s.getLocation(), s.getState(),
                 s.getCollege().getId(), s.getCollege().getName(),
                 s.getCourse() != null ? s.getCourse().getId() : null,
                 s.getCourse() != null ? s.getCourse().getName() : null,
                 s.getBranch(), s.getHighestQualification(), s.getAggregateMarks(), s.getAcademicScoreType(), s.getYearOfPassing(),
+                s.getSelectedInCampusDrive(),
                 s.getExam() != null ? s.getExam().getId() : null,
                 s.getExamCode(),
                 s.getExam() != null ? s.getExam().getDate() : null,
@@ -54,7 +58,8 @@ public class StudentDetailService {
                 submissionInfoResolver.submissionType(submitEvent),
                 submitEvent != null ? submitEvent.getTimestamp() : null,
                 durationSeconds,
-                s.getTabSwitchViolations()
+                s.getTabSwitchViolations(),
+                registrationFieldService.valuesForStudent(s.getId())
         );
     }
 }

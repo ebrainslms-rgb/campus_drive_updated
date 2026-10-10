@@ -14,6 +14,7 @@ import java.util.Optional;
 public interface ExamRepository extends JpaRepository<Exam, Long> {
     Optional<Exam> findByExamCode(String examCode);
     boolean existsByExamCode(String examCode);
+    boolean existsByStartTimeLessThanEqualAndEndTimeGreaterThanEqual(LocalDateTime nowStart, LocalDateTime nowEnd);
     List<Exam> findAllByOrderByCreatedAtDesc();
     List<Exam> findByStartTimeLessThanEqualAndEndTimeGreaterThanEqualOrderByStartTimeAsc(LocalDateTime nowStart, LocalDateTime nowEnd);
 

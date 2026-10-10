@@ -8,13 +8,13 @@ import Papa from 'papaparse';
  * real upload; this never replaces that, it just avoids surprising the
  * admin with an unreviewed bulk write.
  *
- * Rules (must match backend):
- *  - type must be one of aptitude/logical/programming/frontend (case-insensitive)
+ * Rules (must match backend) — checked per question only, no count limits:
+ *  - type must be one of aptitude/logical/programming/frontend/health (case-insensitive)
  *  - question, optionA, optionB, optionC, optionD must all be non-blank
  *  - correctAnswer (or legacy header correctAns) must be A/B/C/D (case-insensitive)
  */
 
-const VALID_TYPES = ['aptitude', 'logical', 'programming', 'frontend'];
+const VALID_TYPES = ['aptitude', 'logical', 'programming', 'frontend', 'health'];
 const VALID_ANSWERS = ['A', 'B', 'C', 'D'];
 const REQUIRED_HEADERS = ['question', 'optionA', 'optionB', 'optionC', 'optionD', 'type'];
 
@@ -40,6 +40,7 @@ export function parseAndValidateCsv(file) {
         }
 
         const issues = [];
+        const typeCounts = { aptitude: 0, logical: 0, programming: 0, frontend: 0, health: 0 };
         let validCount = 0;
         const seenQuestions = new Map(); // for duplicate detection within this file
         let duplicateCount = 0;
@@ -57,7 +58,7 @@ export function parseAndValidateCsv(file) {
           const rowIssues = [];
           if (!question) rowIssues.push('question is empty');
           if (!optionA || !optionB || !optionC || !optionD) rowIssues.push('one or more options (A–D) are empty');
-          if (!VALID_TYPES.includes(type)) rowIssues.push(`invalid type "${row.type || ''}" (must be aptitude, logical, programming, or frontend)`);
+          if (!VALID_TYPES.includes(type)) rowIssues.push(`invalid type "${row.type || ''}" (must be aptitude, logical, programming, frontend, or health)`);
           if (!VALID_ANSWERS.includes(correctAnswer)) rowIssues.push(`invalid correctAnswer "${row.correctAnswer || row.correctAns || ''}" (must be A, B, C, or D)`);
 
           let isDuplicate = false;
@@ -71,6 +72,8 @@ export function parseAndValidateCsv(file) {
             }
           }
 
+          if (rowIssues.length === 0 && typeCounts[type] !== undefined) typeCounts[type]++;
+
           if (rowIssues.length > 0) {
             issues.push({ row: rowNum, reasons: rowIssues, duplicate: isDuplicate });
           } else if (isDuplicate) {
@@ -83,8 +86,12 @@ export function parseAndValidateCsv(file) {
           }
         });
 
+        // Only per-question validation. There is NO fixed number of questions
+        // per section: the exam uses every question in the course's bank.
         resolve({
           fatal: false,
+          fatalReason: '',
+          typeCounts,
           totalRows: results.data.length,
           validCount,
           invalidCount: results.data.length - validCount,

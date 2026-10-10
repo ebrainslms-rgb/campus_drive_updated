@@ -13,6 +13,7 @@ export const KNOWN_SECTION_STYLE = {
   logical:     { color: "#10B981", bg: "rgba(52,211,153,0.14)",  label: "Logical & Verbal" },
   programming: { color: "#EA580C", bg: "rgba(249,115,22,0.14)",  label: "Programming" },
   frontend:    { color: "#0891B2", bg: "rgba(6,182,212,0.14)",   label: "Front-End" },
+  health:      { color: "#16A34A", bg: "rgba(34,197,94,0.14)",   label: "Health" },
 };
 
 export const FALLBACK_COLORS = ["#A855F7", "#EC4899", "#84CC16", "#F59E0B", "#3B82F6"];

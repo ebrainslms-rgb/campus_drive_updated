@@ -35,6 +35,10 @@ const decodeAdminEmail = (token) => {
 // storage - so a stale token gets rejected immediately on page load,
 // rather than waiting for an API call to fail with 401 first (by which
 // point the dashboard shell has already rendered as if logged in).
+const decodeAdminClaims = (token) => {
+  try { const payload=token.split('.')[1]; return JSON.parse(atob(payload.replace(/-/g,'+').replace(/_/g,'/'))); } catch { return {}; }
+};
+
 const isTokenExpired = (token) => {
   try {
     const payload = token.split('.')[1];
@@ -74,6 +78,8 @@ export const AdminProvider = ({ children }) => {
   const [loadingCourses, setLoadingCourses] = useState(false);
   const [loadingExams, setLoadingExams] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
+  // One app-styled popup for permission messages, errors and warnings: { title, message }
+  const [notice, setNotice] = useState(null);
 
   // Handle 401 errors globally
   const handleAuthError = useCallback((error) => {
@@ -90,6 +96,7 @@ export const AdminProvider = ({ children }) => {
   // Fetch colleges (active only — for dropdowns like ExamsView)
   const fetchColleges = useCallback(async () => {
     if (!adminToken || !adminUrlKey) return;
+    const c=decodeAdminClaims(adminToken); if(c.role!=='ADMIN' && !((c.permissions?.COLLEGE||[]).includes('READ') || (c.permissions?.COLLEGE||[]).includes('MODIFY') || (c.permissions?.EXAM_DRIVE||[]).includes('READ') || (c.permissions?.EXAM_DRIVE||[]).includes('MODIFY'))) return;
     setLoadingColleges(true);
     try {
       const [activeRes, allRes] = await Promise.all([
@@ -110,6 +117,7 @@ export const AdminProvider = ({ children }) => {
   // Fetch courses
   const fetchCourses = useCallback(async () => {
     if (!adminToken || !adminUrlKey) return;
+    const c=decodeAdminClaims(adminToken); if(c.role!=='ADMIN' && !(c.permissions?.COURSE||[]).includes('READ') && !(c.permissions?.COURSE||[]).includes('MODIFY')) return;
     setLoadingCourses(true);
     try {
       const res = await api.get('/admin/courses');
@@ -126,6 +134,7 @@ export const AdminProvider = ({ children }) => {
   // Fetch exams
   const fetchExams = useCallback(async () => {
     if (!adminToken || !adminUrlKey) return;
+    const c=decodeAdminClaims(adminToken); if(c.role!=='ADMIN' && !(c.permissions?.EXAM_DRIVE||[]).includes('READ') && !(c.permissions?.EXAM_DRIVE||[]).includes('MODIFY')) return;
     setLoadingExams(true);
     try {
       const res = await api.get('/admin/exams');
@@ -152,6 +161,47 @@ export const AdminProvider = ({ children }) => {
     window.addEventListener('popstate', syncKey);
     return () => window.removeEventListener('popstate', syncKey);
   }, [adminUrlKey]);
+
+  useEffect(() => {
+    const onExpired = () => {
+      // Only relevant while a session exists (never on the login form).
+      if (localStorage.getItem('adminToken')) setSessionExpired(true);
+    };
+    window.addEventListener('eb-admin-session-expired', onExpired);
+    return () => window.removeEventListener('eb-admin-session-expired', onExpired);
+  }, []);
+
+  useEffect(() => {
+    const onDenied = (e) => setNotice({
+      title: 'Permission Required',
+      message: e.detail?.message || "You don't have permission to perform this action.",
+    });
+    const onNotify = (e) => setNotice({
+      title: e.detail?.title || 'Please check',
+      message: e.detail?.message || '',
+    });
+    window.addEventListener('eb-permission-denied', onDenied);
+    window.addEventListener('eb-notify', onNotify);
+    return () => {
+      window.removeEventListener('eb-permission-denied', onDenied);
+      window.removeEventListener('eb-notify', onNotify);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!adminToken || !adminUrlKey) return;
+    let cancelled = false;
+    const role = decodeAdminClaims(adminToken).role;
+    const sessionPath = role === 'USER' ? '/user/auth/session' : '/admin/auth/session';
+    api.get(sessionPath).then(res => {
+      if (cancelled || !res.data?.token) return;
+      setAdminToken(res.data.token);
+      localStorage.setItem('adminToken', res.data.token);
+    }).catch(() => {
+      if (!cancelled) logoutAdmin();
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   // Initial data load — runs once when credentials become available.
   // No polling: the Stats panel fetches its own data directly and
@@ -190,6 +240,8 @@ export const AdminProvider = ({ children }) => {
       // Auth
       adminToken,
       adminEmail: adminToken ? decodeAdminEmail(adminToken) : null,
+      adminRole: adminToken ? (decodeAdminClaims(adminToken).role || "ADMIN") : null,
+      hasPermission: (key, access="READ") => { const c=adminToken?decodeAdminClaims(adminToken):{}; if(c.role==="ADMIN") return true; const p=c.permissions?.[key] || []; return access==="READ" ? p.includes("READ") || p.includes("MODIFY") : p.includes("MODIFY"); },
       adminUrlKey,
       loginAdmin,
       logoutAdmin,
@@ -251,6 +303,17 @@ export const AdminProvider = ({ children }) => {
               }}>
               Return to Login
             </button>
+          </div>
+        </div>
+      )}
+
+      {notice && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+          role="alertdialog" aria-modal="true" aria-labelledby="eb-notice-title" aria-describedby="eb-notice-message">
+          <div className="w-full max-w-sm mx-4 rounded-2xl border p-6" style={{background:'var(--eb-surface)',borderColor:'var(--eb-border)'}}>
+            <h3 id="eb-notice-title" className="text-lg font-semibold" style={{color:'var(--eb-text)'}}>{notice.title}</h3>
+            <p id="eb-notice-message" className="text-sm mt-2 whitespace-pre-line" style={{color:'var(--eb-text-muted)'}}>{notice.message}</p>
+            <button className="eb-btn mt-5" autoFocus onClick={()=>setNotice(null)}>OK</button>
           </div>
         </div>
       )}

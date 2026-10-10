@@ -51,7 +51,7 @@ function SettingsPanel() {
  * invents data that doesn't exist. Includes a built-in Settings pane
  * (theme selector) reachable via the "Settings" link.
  */
-export default function ProfileDrawer({ open, onClose, title, fields, onLogout, roleLabel, extraLinks = [] }) {
+export default function ProfileDrawer({ open, onClose, title, fields, onLogout, roleLabel, extraLinks = [], showSettings = false }) {
   const [view, setView] = useState('profile'); // 'profile' | 'settings'
 
   if (!open) return null;
@@ -101,7 +101,7 @@ export default function ProfileDrawer({ open, onClose, title, fields, onLogout, 
               </div>
 
               <div className="pt-2 border-t space-y-1" style={{ borderColor: 'var(--eb-border)' }}>
-                <button onClick={() => setView('settings')}
+                {showSettings && <button onClick={() => setView('settings')}
                   className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors hover:bg-slate-50 dark:hover:bg-slate-700"
                   style={{ color: 'var(--eb-text)' }}>
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -109,7 +109,7 @@ export default function ProfileDrawer({ open, onClose, title, fields, onLogout, 
                     <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
                   Settings
-                </button>
+                </button>}
                 {extraLinks.map((link, i) => (
                   <button key={i} onClick={link.onClick}
                     className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors hover:bg-slate-50 dark:hover:bg-slate-700"

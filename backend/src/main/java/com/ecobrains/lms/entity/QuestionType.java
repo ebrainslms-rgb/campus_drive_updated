@@ -4,5 +4,6 @@ public enum QuestionType {
     APTITUDE,
     LOGICAL,
     PROGRAMMING,
-    FRONTEND
+    FRONTEND,
+    HEALTH
 }

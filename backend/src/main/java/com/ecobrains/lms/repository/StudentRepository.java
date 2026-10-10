@@ -18,6 +18,11 @@ public interface StudentRepository extends JpaRepository<Student, Long>, JpaSpec
     Optional<Student> findByEmailIgnoreCase(String email);
     boolean existsByEmailIgnoreCase(String email);
     boolean existsByPhoneNumber(String phoneNumber);
+    @Query("SELECT s FROM Student s WHERE LOWER(s.email) IN :emails")
+    List<Student> findAllByEmails(@Param("emails") java.util.Collection<String> emails);
+    List<Student> findAllByPhoneNumberIn(java.util.Collection<String> phoneNumbers);
+    List<Student> findByFullNameContainingIgnoreCaseOrEmailContainingIgnoreCaseOrPhoneNumberContaining(
+            String name, String email, String phoneNumber);
     long countByExamCodeAndExamSubmittedTrue(String examCode);
     List<Student> findByCollegeId(Long collegeId);
     List<Student> findByExamId(Long examId);
@@ -258,6 +263,9 @@ public interface StudentRepository extends JpaRepository<Student, Long>, JpaSpec
               AND (:courseId IS NULL OR s.course_id = :courseId)
               AND (:attemptedOnly IS NULL OR s.exam_started = :attemptedOnly)
               AND (:submittedOnly IS NULL OR s.exam_submitted = :submittedOnly)
+              AND (:search IS NULL OR :search = '' OR LOWER(s.full_name) LIKE LOWER(CONCAT('%', :search, '%'))
+                   OR LOWER(s.email) LIKE LOWER(CONCAT('%', :search, '%'))
+                   OR s.phone_number LIKE CONCAT('%', :search, '%'))
         ) t
         WHERE (:scoreMin IS NULL OR t.pct >= :scoreMin)
           AND (:scoreMax IS NULL OR t.pct <= :scoreMax)
@@ -274,6 +282,9 @@ public interface StudentRepository extends JpaRepository<Student, Long>, JpaSpec
               AND (:courseId IS NULL OR s.course_id = :courseId)
               AND (:attemptedOnly IS NULL OR s.exam_started = :attemptedOnly)
               AND (:submittedOnly IS NULL OR s.exam_submitted = :submittedOnly)
+              AND (:search IS NULL OR :search = '' OR LOWER(s.full_name) LIKE LOWER(CONCAT('%', :search, '%'))
+                   OR LOWER(s.email) LIKE LOWER(CONCAT('%', :search, '%'))
+                   OR s.phone_number LIKE CONCAT('%', :search, '%'))
         ) t
         WHERE (:scoreMin IS NULL OR t.pct >= :scoreMin)
           AND (:scoreMax IS NULL OR t.pct <= :scoreMax)
@@ -281,7 +292,7 @@ public interface StudentRepository extends JpaRepository<Student, Long>, JpaSpec
     Page<Long> findIdsInScoreRange(@Param("examId") Long examId, @Param("courseId") Long courseId,
                                     @Param("attemptedOnly") Boolean attemptedOnly, @Param("submittedOnly") Boolean submittedOnly,
                                     @Param("scoreMin") Double scoreMin, @Param("scoreMax") Double scoreMax,
-                                    Pageable pageable);
+                                    @Param("search") String search, Pageable pageable);
 
     // -- College-scoped student list (Top Performers / View All Students) --
     // Same percentage-score-based sort/pagination pattern as

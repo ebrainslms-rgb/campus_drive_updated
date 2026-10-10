@@ -127,7 +127,7 @@ public class CollegeOverviewService {
                     durationSeconds,
                     s.getEmail(), s.getPhoneNumber(), college.getName(), s.getBranch(),
                     s.getHighestQualification(), s.getAggregateMarks(), s.getAcademicScoreType(), s.getYearOfPassing(),
-                    s.getSelectedInCampusDrive(), answered.intValue()
+                    s.getSelectedInCampusDrive(), answered.intValue(), s.getGender(), s.getExamCode(), s.getTabSwitchViolations()
             ));
         }
 

@@ -13,5 +13,6 @@ public record ExamStateResponse(
         Instant slotStartTime,
         Instant slotEndTime,
         String accessStatus,
-        Instant restrictionUntil
+        Instant restrictionUntil,
+        long stateVersion
 ) {}

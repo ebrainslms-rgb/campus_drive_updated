@@ -9,8 +9,7 @@
  */
 
 import React, { useEffect } from "react";
-import { Routes, Route, Navigate, useParams, useLocation } from "react-router-dom";
-
+import { Routes, Route, Navigate, useLocation, useParams } from "react-router-dom";
 import Login      from "./components/Login.jsx";
 import Register   from "./components/Register.jsx";
 import AdminLogin  from "./components/AdminLogin.jsx";
@@ -25,6 +24,8 @@ import ThemeToggle from "./components/shared/ThemeToggle.jsx";
 import { useAdminAuth } from "./context/AdminContext";
 import { useStudentAuth } from "./context/StudentAuthContext";
 
+const ADMIN_URL_KEY = import.meta.env.VITE_ADMIN_URL_KEY || "eb-admin-2026";
+
 /* ── Route guards ──────────────────────────────────────────────────────── */
 
 /** Only lets an authenticated student through; otherwise sends them to login. */
@@ -38,15 +39,25 @@ function ProtectedStudentRoute({ children }) {
 }
 
 /**
- * Only lets an authenticated admin through, and only for the URL key their
- * token was issued under — a stale token for a different /{key}/admin
- * doesn't leak access to this one.
+ * The admin area lives under /:adminKey/admin. Only the configured key is a
+ * real admin URL; anything else renders the 404 page. Using a route *param*
+ * (instead of a hard-coded path) is what lets every dashboard screen read
+ * `adminKey` via useParams() to build its links.
+ */
+function AdminKeyGate({ children }) {
+  const { adminKey } = useParams();
+  if (adminKey !== ADMIN_URL_KEY) return <NotFound />;
+  return children;
+}
+
+/**
+ * Only lets an authenticated admin/portal user through, and only for the URL
+ * key their token was issued under.
  */
 function ProtectedAdminRoute({ children }) {
   const { adminToken, adminUrlKey } = useAdminAuth();
-  const { adminKey } = useParams();
-  if (!adminToken || adminUrlKey !== adminKey) {
-    return <Navigate to={`/${adminKey}/admin`} replace />;
+  if (!adminToken || adminUrlKey !== ADMIN_URL_KEY) {
+    return <Navigate to={`/${ADMIN_URL_KEY}/admin`} replace />;
   }
   return children;
 }
@@ -55,16 +66,15 @@ function ProtectedAdminRoute({ children }) {
  *  the dashboard if this browser already holds a valid session for this key. */
 function AdminEntry() {
   const { adminToken, adminUrlKey } = useAdminAuth();
-  const { adminKey } = useParams();
-  if (adminToken && adminUrlKey === adminKey) {
-    return <Navigate to={`/${adminKey}/admin/overview`} replace />;
+  if (adminToken && adminUrlKey === ADMIN_URL_KEY) {
+    return <Navigate to={`/${ADMIN_URL_KEY}/admin/overview`} replace />;
   }
   return <AdminShell><AdminLogin /></AdminShell>;
 }
 
 /* ── Shared chrome for public student/admin-login screens ───────────────── */
 function AdminShell({ children }) {
-  useEffect(() => { document.title = "EchoBrains · Admin Portal"; }, []);
+  useEffect(() => { document.title = "EchoBrains · Portal Access"; }, []);
   return (
     <div className="min-h-screen flex items-center justify-center px-4 py-12 relative" style={{ background: "var(--eb-bg)" }}>
       <div className="absolute top-4 right-4 sm:top-6 sm:right-6">
@@ -74,7 +84,7 @@ function AdminShell({ children }) {
         <div className="flex items-center justify-center gap-3 mb-8 select-none">
           <img src="/logo.png" alt="EchoBrains Logo" className="h-10 w-auto object-contain" draggable={false} />
           <span className="text-[11px] font-semibold tracking-[0.14em] uppercase" style={{ color: "var(--eb-text-muted)" }}>
-            Admin Portal
+            Portal Access
           </span>
         </div>
         {children}
@@ -89,7 +99,7 @@ export default function App() {
 
   useEffect(() => {
     const path = location.pathname;
-    if (path.includes("/admin")) document.title = "EchoBrains · Admin Portal";
+    if (path.includes("/admin")) document.title = "EchoBrains · Portal Access";
     else if (path.startsWith("/student/rules")) document.title = "EchoBrains · Exam Rules";
     else if (path.startsWith("/student/exam")) document.title = "EchoBrains · Secure Exam";
     else if (path.startsWith("/student/result")) document.title = "EchoBrains · Result";
@@ -114,10 +124,12 @@ export default function App() {
           <ProtectedStudentRoute><ResultPage /></ProtectedStudentRoute>
         } />
 
-        {/* Admin portal — :adminKey mirrors the backend's app.admin.url-key */}
-        <Route path="/:adminKey/admin" element={<AdminEntry />} />
+        {/* Admin portal — only the configured Admin URL key is accepted (see AdminKeyGate). */}
+        <Route path="/:adminKey/admin" element={
+          <AdminKeyGate><AdminEntry /></AdminKeyGate>
+        } />
         <Route path="/:adminKey/admin/*" element={
-          <ProtectedAdminRoute><AdminDashboard /></ProtectedAdminRoute>
+          <AdminKeyGate><ProtectedAdminRoute><AdminDashboard /></ProtectedAdminRoute></AdminKeyGate>
         } />
 
         {/* Anything else */}

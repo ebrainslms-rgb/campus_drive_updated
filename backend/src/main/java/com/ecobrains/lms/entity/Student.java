@@ -36,8 +36,11 @@ public class Student {
     @Column(nullable = false, unique = true, length = 150)
     private String email;
 
-    @Column(nullable = false)
+    @Column(nullable = true)
     private LocalDate dob;
+
+    @Column(length = 20)
+    private String gender;
 
     @Column(name = "phone_number", nullable = false, unique = true, length = 15)
     private String phoneNumber;
@@ -55,10 +58,10 @@ public class Student {
     @Column(nullable = false, length = 50)
     private String branch;
 
-    @Column(name = "highest_qualification", nullable = false, length = 50)
+    @Column(name = "highest_qualification", nullable = true, length = 50)
     private String highestQualification;
 
-    @Column(name = "aggregate_marks", nullable = false)
+    @Column(name = "aggregate_marks", nullable = true)
     private Double aggregateMarks;
 
     // "CGPA" or "PERCENTAGE" - which scale aggregateMarks is actually in.
@@ -74,7 +77,7 @@ public class Student {
     @Column(name = "academic_score_type", length = 20)
     private String academicScoreType;
 
-    @Column(name = "year_of_passing", nullable = false)
+    @Column(name = "year_of_passing", nullable = true)
     private Integer yearOfPassing;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)

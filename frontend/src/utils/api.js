@@ -15,42 +15,23 @@ const isAdminRoute = (url) =>
   (url || '').startsWith('/admin/') || (url || '').includes('/admin/');
 
 api.interceptors.request.use((config) => {
-  const adminToken   = localStorage.getItem('adminToken');
+  const adminToken = localStorage.getItem('adminToken');
   const studentToken = localStorage.getItem('studentToken');
-
-  // Prefer the key from the current admin URL path over any stale
-  // value cached in localStorage (keeps in sync with .env ADMIN_URL_KEY).
-  const pathKey = getPathAdminKey();
-  let urlKey = localStorage.getItem('adminUrlKey');
-
-  if (pathKey) {
-    urlKey = pathKey;
-    localStorage.setItem('adminUrlKey', pathKey);
-  }
-
-  // ── Token selection: route-aware, never mix admin/student ──────────────
-  // Student routes: anything under /api/student/*
-  // Admin routes: anything under /api/admin/*
   const url = config.url || '';
   const isStudentRoute = url.startsWith('/student/') || url.includes('/student/');
+  const isAdminApi = url.startsWith('/admin/') || url.includes('/admin/');
+  const isAuthRequest = /\/(admin|user|student)\/auth\/(login|register)$/.test(url);
 
-  if (isStudentRoute && studentToken) {
-    // Student route → always use student token regardless of admin token presence
-    config.headers['Authorization'] = `Bearer ${studentToken}`;
-  } else if (isAdminRoute(url) && adminToken) {
-    // Admin route → use admin token
-    config.headers['Authorization'] = `Bearer ${adminToken}`;
-  } else if (adminToken) {
-    // Fallback for unrecognised routes: prefer admin if logged in as admin
-    config.headers['Authorization'] = `Bearer ${adminToken}`;
-  } else if (studentToken) {
-    config.headers['Authorization'] = `Bearer ${studentToken}`;
+  if (!isAuthRequest) {
+    if (isStudentRoute && studentToken) config.headers['Authorization'] = `Bearer ${studentToken}`;
+    else if (isAdminApi && adminToken) config.headers['Authorization'] = `Bearer ${adminToken}`;
+    else if (adminToken && !isStudentRoute) config.headers['Authorization'] = `Bearer ${adminToken}`;
+    else if (studentToken) config.headers['Authorization'] = `Bearer ${studentToken}`;
   }
 
-  if (urlKey) {
-    config.headers['x-admin-url-key'] = urlKey;
-  }
-
+  const pathKey = getPathAdminKey();
+  const urlKey = pathKey || localStorage.getItem('adminUrlKey');
+  if (urlKey && isAdminApi) config.headers['x-admin-url-key'] = urlKey;
   return config;
 }, (error) => Promise.reject(error));
 
@@ -63,20 +44,33 @@ api.interceptors.response.use(
     const status = error.response?.status;
     const url = error.config?.url || '';
 
+    // Expired/invalid admin or portal-user session: let AdminContext show the
+    // "Session expired" dialog. Login requests are excluded (a wrong password
+    // is also a 401 and must be shown on the login form instead).
+    const isLoginCall = /\/(admin|user|student)\/auth\/(login|register)$/.test(url);
+    if (status === 401 && !isLoginCall && (isAdminRoute(url) || url.includes('/user/auth/'))) {
+      window.dispatchEvent(new CustomEvent('eb-admin-session-expired'));
+      return Promise.reject(error);
+    }
+
     if (status === 403 && isAdminRoute(url)) {
-      try {
-        const { data } = await api.get('/admin/config');
-        const canonical = data.adminUrlKey;
-        if (canonical) {
-          localStorage.setItem('adminUrlKey', canonical);
-          const segs = window.location.pathname.split('/').filter(Boolean);
-          if (segs[1] === 'admin' && segs[0] !== canonical) {
-            window.location.href = `/${canonical}/admin`;
-            return new Promise(() => {}); // halt; page will reload on redirect
+      const message = error.response?.data?.message || '';
+      if (/Invalid Admin URL Key/i.test(message)) {
+        try {
+          const { data } = await api.get('/admin/config');
+          const canonical = data.adminUrlKey;
+          if (canonical) {
+            localStorage.setItem('adminUrlKey', canonical);
+            const segs = window.location.pathname.split('/').filter(Boolean);
+            if (segs[1] === 'admin' && segs[0] !== canonical) {
+              window.location.href = `/${canonical}/admin`;
+              return new Promise(() => {});
+            }
           }
-        }
-      } catch (_) {
-        // Backend unreachable — fall through and reject as normal.
+        } catch (_) {}
+      } else {
+        window.dispatchEvent(new CustomEvent('eb-permission-denied', { detail: { message: message || "You don't have permission to perform this action." } }));
+        error.permissionHandled = true; // screens use this to avoid showing a second message
       }
     }
 

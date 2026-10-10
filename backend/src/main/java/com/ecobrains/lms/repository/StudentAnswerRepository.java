@@ -9,6 +9,10 @@ import org.springframework.data.repository.query.Param;
 import java.util.List;
 
 public interface StudentAnswerRepository extends JpaRepository<StudentAnswer, Long> {
+
+    @Modifying
+    @Query("DELETE FROM StudentAnswer a WHERE a.student.id = :studentId")
+    void deleteByStudentId(@Param("studentId") Long studentId);
     List<StudentAnswer> findByStudentIdOrderByOrderIndexAsc(Long studentId);
 
     /** True only if a student is genuinely mid-exam RIGHT NOW on this course

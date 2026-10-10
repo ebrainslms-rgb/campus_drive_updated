@@ -12,6 +12,13 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
 
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
     networks:
       - lms-network
 
@@ -22,6 +29,11 @@ services:
     command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000"]
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     ports:
       - "127.0.0.1:6379:6379"
     networks:
@@ -35,9 +47,13 @@ services:
     container_name: raju-lms-backend
     restart: unless-stopped
 
+    # Wait until MySQL/Redis actually accept connections; otherwise the backend
+    # can crash on first start and the login page shows "Login failed".
     depends_on:
-      - mysql
-      - redis
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
     environment:
       TZ: Asia/Kolkata
@@ -52,13 +68,13 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
 
-      APP_ADMIN_USERNAME: ${ADMIN_USERNAME}
-      APP_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
-      APP_ADMIN_URL_KEY: ${ADMIN_URL_KEY}
+      APP_ADMIN_USERNAME: ${ADMIN_USERNAME:-admin@ecobrains.com}
+      APP_ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      APP_ADMIN_URL_KEY: ${ADMIN_URL_KEY:-eb-admin-2026}
 
-      APP_JWT_SECRET: ${JWT_SECRET}
+      APP_JWT_SECRET: ${JWT_SECRET:-xdw8YNnbJhtiPxzdA5Y6Nkw1x0KrHV24ZW7Iefev+ATlWL/EOxRuUG0Sas8d0fFS}
 
-      APP_CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      APP_CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost}
 
     ports:
       - "8080:8080"
@@ -71,6 +87,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_ADMIN_URL_KEY: ${ADMIN_URL_KEY:-eb-admin-2026}
 
     container_name: raju-lms-frontend
     restart: unless-stopped

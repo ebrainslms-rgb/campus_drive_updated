@@ -7,6 +7,7 @@ public record StudentAdminListResponse(
         String name,
         String email,
         String phoneNumber,
+        String gender,
         Long collegeId,
         String collegeName,
         Long courseId,

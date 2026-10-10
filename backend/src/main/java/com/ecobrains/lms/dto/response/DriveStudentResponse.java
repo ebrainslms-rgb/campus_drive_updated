@@ -33,5 +33,8 @@ public record DriveStudentResponse(
         String academicScoreType, // "CGPA" or "PERCENTAGE" - null on any pre-existing row treated as PERCENTAGE
         Integer yearOfPassing,
         String selectedInCampusDrive, // raw stored value (e.g. "YES"/"NO") - normalised at export time
-        Integer answeredCount        // distinct from paperSize (= total questions); this is how many were actually answered
+        Integer answeredCount,       // distinct from paperSize (= total questions); this is how many were actually answered
+        String gender,
+        String examCode,
+        Integer tabSwitchViolations
 ) {}

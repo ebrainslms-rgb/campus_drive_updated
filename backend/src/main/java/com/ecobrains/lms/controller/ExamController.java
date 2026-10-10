@@ -8,6 +8,7 @@ import com.ecobrains.lms.repository.ExamRepository;
 import com.ecobrains.lms.service.ExamService;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
+import com.ecobrains.lms.dto.response.PageResponse;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -56,13 +57,13 @@ public ResponseEntity<java.util.Map<String, Long>> attendance() {
      * Management page uses unpaginated) so that page's behavior is untouched.
      */
     @GetMapping("/search")
-    public ResponseEntity<Page<DriveSummaryResponse>> search(
+    public ResponseEntity<PageResponse<DriveSummaryResponse>> search(
             @RequestParam(required = false) String search,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
         Page<com.ecobrains.lms.entity.Exam> exams = examRepository.searchForFilter(
                 (search == null || search.isBlank()) ? null : search.trim(),
                 PageRequest.of(Math.max(page - 1, 0), size));
-        return ResponseEntity.ok(exams.map(e -> DriveSummaryResponse.basic(e, 0, 0, null)));
+        return ResponseEntity.ok(PageResponse.of(exams.map(e -> DriveSummaryResponse.basic(e, 0, 0, null))));
     }
 }

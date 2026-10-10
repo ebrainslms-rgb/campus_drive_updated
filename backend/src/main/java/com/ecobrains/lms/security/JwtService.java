@@ -29,13 +29,21 @@ public class JwtService {
             @Value("${app.jwt.admin-expiration-ms:86400000}") long adminExpirationMs,
             @Value("${app.jwt.student-expiration-ms:28800000}") long studentExpirationMs) {
         // Secret must be a sufficiently long, Base64-encoded key for HS256.
-        this.key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(secret));
+        this.key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(secret == null ? "" : secret.strip()));
         this.adminExpirationMs = adminExpirationMs;
         this.studentExpirationMs = studentExpirationMs;
     }
 
-    public String generateAdminToken(String email) {
-        return buildToken(Map.of("role", "ADMIN"), email, adminExpirationMs);
+    public String generateAdminToken(Long userId, String email) {
+        return buildToken(Map.of("role", "ADMIN", "userId", userId), email, adminExpirationMs);
+    }
+
+    public String generatePortalToken(Long userId, String email, String role, Map<String,Object> permissions) {
+        Map<String,Object> claims = new java.util.LinkedHashMap<>();
+        claims.put("role", role);
+        claims.put("userId", userId);
+        claims.put("permissions", permissions);
+        return buildToken(claims, email, adminExpirationMs);
     }
 
     public String generateStudentToken(Long studentId, String email) {
@@ -59,6 +67,12 @@ public class JwtService {
 
     public String extractRole(String token) {
         return extractAllClaims(token).get("role", String.class);
+    }
+
+    public Long extractPortalUserId(String token) {
+        Object v = extractAllClaims(token).get("userId");
+        if (v == null) return null;
+        return Long.valueOf(v.toString());
     }
 
     public Long extractStudentId(String token) {

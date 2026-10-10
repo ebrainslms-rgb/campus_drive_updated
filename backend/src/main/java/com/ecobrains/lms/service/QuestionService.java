@@ -39,7 +39,7 @@ import java.util.Set;
 @Service
 public class QuestionService {
 
-    private static final Set<String> VALID_TYPES = Set.of("aptitude", "logical", "programming", "frontend");
+    private static final Set<String> VALID_TYPES = Set.of("aptitude", "logical", "programming", "frontend", "health");
     private static final Set<String> VALID_ANSWERS = Set.of("A", "B", "C", "D");
 
     private final QuestionRepository questionRepository;
@@ -72,49 +72,10 @@ public class QuestionService {
                 .orElseThrow(() -> ApiException.badRequest("Selected course is inactive or not found."));
         if (!course.isActive()) throw ApiException.badRequest("Cannot upload questions: selected course is inactive.");
 
-        // Block ONLY while a scheduled exam's own time window genuinely
-        // contains right now, for a student enrolled in THIS course -
-        // purely server-side and time-based, never tied to any individual
-        // student's started/submitted flags (those can get stuck forever
-        // if a submit request fails).
-        //
-        // Deliberately goes through Student.course, NOT Exam.course: the
-        // real "Schedule New Exam" admin form has no course field at all,
-        // so Exam.course is essentially always null in practice. Student's
-        // own course is required (never null), which is what makes this
-        // check actually work against real data.
-        //
-        // Uses explicit IST, matching every other exam-timing check in this
-        // codebase (StudentAuthService, StudentExamService) - the server's
-        // own default timezone is not guaranteed to be IST (commonly UTC on
-        // cloud VPS deployments), and exam start/end times are stored as
-        // IST wall-clock values.
-        LocalDateTime now = LocalDateTime.now(ZoneId.of("Asia/Kolkata"));
-        if (studentRepository.existsOngoingExamForCourse(courseId, now)) {
-            List<String> codes = studentRepository.ongoingExamCodesForCourse(courseId, now);
-            throw ApiException.conflict(
-                    "Cannot replace questions for \"" + course.getName() + "\": an exam is currently in progress " +
-                    "for this course (code: " + String.join(", ", codes) + "). Please wait until it finishes."
-            );
-        }
-
-        // No ongoing exam remains, so any StudentAnswer rows still present at
-        // this point belong only to already-completed students. Their score
-        // and registration data live on the Student row itself and are
-        // completely unaffected by this - only the specific per-question
-        // answer trail is cleared.
-        studentAnswerRepository.deleteByQuestion_Course_Id(courseId);
-
-        // ActivityLog also has a foreign key to Question (separate from
-        // StudentAnswer) - clearing StudentAnswer alone was NOT enough, the
-        // delete below would still fail on this second reference. Rows are
-        // only nulled here, never deleted - SubmissionInfoResolver depends
-        // on these ActivityLog rows surviving for the Drive Details
-        // submission-time/type feature, which doesn't need question_id at all.
-        activityLogRepository.clearQuestionReferencesForCourse(courseId);
-
-        questionRepository.deleteByCourseId(courseId);
-
+        // Parse and validate the complete file BEFORE touching the existing
+        // question bank. The old order deleted the bank first and only then
+        // discovered malformed rows, which could leave a course with a partial
+        // paper. This is now all-or-nothing.
         List<Question> validDocs = new ArrayList<>();
         List<String> skipReasons = new ArrayList<>();
 
@@ -137,7 +98,7 @@ public class QuestionService {
                 correctAnswer = correctAnswer.toUpperCase();
 
                 if (!VALID_TYPES.contains(type)) {
-                    skipReasons.add("Row " + rowIndex + ": invalid type \"" + type + "\". Must be aptitude, logical, programming, or frontend.");
+                    skipReasons.add("Row " + rowIndex + ": invalid type \"" + type + "\". Must be aptitude, logical, programming, frontend, or health.");
                     continue;
                 }
                 if (question.isBlank() || optionA.isBlank() || optionB.isBlank() || optionC.isBlank() || optionD.isBlank()) {
@@ -160,10 +121,28 @@ public class QuestionService {
             throw ApiException.badRequest("Could not read the uploaded file: " + e.getMessage());
         }
 
-        int inserted = 0;
-        if (!validDocs.isEmpty()) {
-            inserted = questionRepository.saveAll(validDocs).size();
+        if (!skipReasons.isEmpty()) {
+            throw ApiException.badRequest("Question upload rejected. Fix the invalid rows and upload the complete file again. " + String.join(" | ", skipReasons));
         }
+
+
+        LocalDateTime now = LocalDateTime.now(ZoneId.of("Asia/Kolkata"));
+        if (studentRepository.existsOngoingExamForCourse(courseId, now)) {
+            List<String> codes = studentRepository.ongoingExamCodesForCourse(courseId, now);
+            throw ApiException.conflict(
+                    "Cannot replace questions for \"" + course.getName() + "\": an exam is currently in progress " +
+                    "for this course (code: " + String.join(", ", codes) + "). Please wait until it finishes."
+            );
+        }
+
+        // Only after the complete replacement file has passed every check do
+        // we remove the old bank. Completed students keep their scores; only
+        // their per-question answer trail is cleared, as before.
+        studentAnswerRepository.deleteByQuestion_Course_Id(courseId);
+        activityLogRepository.clearQuestionReferencesForCourse(courseId);
+        questionRepository.deleteByCourseId(courseId);
+
+        int inserted = questionRepository.saveAll(validDocs).size();
 
         adminLogRepository.save(AdminLog.builder()
                 .adminEmail(CurrentUser.email())
@@ -173,11 +152,11 @@ public class QuestionService {
                 .uploadCourseName(course.getName())
                 .uploadFileName(file.getOriginalFilename())
                 .uploadInserted(inserted)
-                .uploadSkipped(skipReasons.size())
-                .uploadStatus(inserted > 0 ? "Success" : "Failed")
+                .uploadSkipped(0)
+                .uploadStatus("Success")
                 .build());
 
-        return new QuestionUploadResponse(inserted, skipReasons.size(), skipReasons, course.getName());
+        return new QuestionUploadResponse(inserted, 0, List.of(), course.getName());
     }
 
     /** Returns every question for a course, cached per course - the whole
@@ -200,8 +179,9 @@ public class QuestionService {
         long logical = questionRepository.countByCourseIdAndType(courseId, QuestionType.LOGICAL);
         long programming = questionRepository.countByCourseIdAndType(courseId, QuestionType.PROGRAMMING);
         long frontend = questionRepository.countByCourseIdAndType(courseId, QuestionType.FRONTEND);
-        return new QuestionStatsResponse(aptitude, logical, programming, frontend,
-                aptitude + logical + programming + frontend);
+        long health = questionRepository.countByCourseIdAndType(courseId, QuestionType.HEALTH);
+        return new QuestionStatsResponse(aptitude, logical, programming, frontend, health,
+                aptitude + logical + programming + frontend + health);
     }
 
     public List<UploadHistoryEntryResponse> uploadHistory(Long courseId) {
@@ -236,7 +216,7 @@ public class QuestionService {
     // exactly, so the admin review screen groups questions the same way
     // students see them.
     private static final List<QuestionType> SECTION_ORDER =
-            List.of(QuestionType.APTITUDE, QuestionType.LOGICAL, QuestionType.PROGRAMMING, QuestionType.FRONTEND);
+            List.of(QuestionType.APTITUDE, QuestionType.LOGICAL, QuestionType.PROGRAMMING, QuestionType.FRONTEND, QuestionType.HEALTH);
 
     /** Full question list for one course, for the admin Review/Edit screen.
      *  editingLocked uses the SAME time-slot-based check as upload() (see
@@ -286,7 +266,7 @@ public class QuestionService {
         String d = req.optionD() == null ? "" : req.optionD().trim();
 
         if (!VALID_TYPES.contains(type)) {
-            throw ApiException.badRequest("Invalid type \"" + type + "\". Must be aptitude, logical, programming, or frontend.");
+            throw ApiException.badRequest("Invalid type \"" + type + "\". Must be aptitude, logical, programming, frontend, or health.");
         }
         if (questionText.isBlank() || a.isBlank() || b.isBlank() || c.isBlank() || d.isBlank()) {
             throw ApiException.badRequest("Question and all four options are required.");
@@ -344,7 +324,7 @@ public class QuestionService {
         String d = req.optionD() == null ? "" : req.optionD().trim();
 
         if (!VALID_TYPES.contains(type)) {
-            throw ApiException.badRequest("Invalid type \"" + type + "\". Must be aptitude, logical, programming, or frontend.");
+            throw ApiException.badRequest("Invalid type \"" + type + "\". Must be aptitude, logical, programming, frontend, or health.");
         }
         if (questionText.isBlank() || a.isBlank() || b.isBlank() || c.isBlank() || d.isBlank()) {
             throw ApiException.badRequest("Question and all four options are required.");

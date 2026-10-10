@@ -101,13 +101,13 @@ public class RedisExamStateService {
         return active;
     }
 
-    public void applyAnswers(Long examId, Long studentId, SaveProgressBatchRequest req) {
+    public ExamSessionState applyAnswers(Long examId, Long studentId, SaveProgressBatchRequest req) {
         ExamSessionState state = require(examId, studentId);
         if (!"ACTIVE".equals(state.status())) {
             throw ApiException.forbidden("This examination session is not active.");
         }
         long incoming = req.clientSequence() == null ? state.stateVersion() + 1 : req.clientSequence();
-        if (incoming <= state.stateVersion()) return;
+        if (incoming <= state.stateVersion()) return state;
 
         Map<Long,Integer> answers = new HashMap<>(state.answers());
         if (req.answers() != null) {
@@ -117,9 +117,45 @@ public class RedisExamStateService {
             }
         }
         int current = req.currentQuestionIndex() != null ? req.currentQuestionIndex() : state.currentQuestionIndex();
-        save(new ExamSessionState(state.studentId(), state.examId(), state.status(), state.startedAt(), state.deadline(),
+        ExamSessionState next = new ExamSessionState(state.studentId(), state.examId(), state.status(), state.startedAt(), state.deadline(),
                 current, state.tabSwitchCount(), state.restrictionUntil(), incoming, state.checkpointVersion(), true,
-                state.questions(), answers, state.correctAnswers()));
+                state.questions(), answers, state.correctAnswers());
+        save(next);
+        return next;
+    }
+
+
+    /**
+     * Stores the complete latest browser snapshot and marks the Redis attempt
+     * as waiting for server-side finalization. This is intentionally Redis-only:
+     * the permanent MySQL result is written later by ExamFinalizationService.
+     */
+    public ExamSessionState requestFinalization(Long examId, Long studentId, SaveProgressBatchRequest req) {
+        ExamSessionState state = require(examId, studentId);
+        if ("COMPLETED".equals(state.status()) || "SUBMITTED_PENDING".equals(state.status())) return state;
+        if (!"ACTIVE".equals(state.status())) {
+            throw ApiException.forbidden("This examination session is not active.");
+        }
+
+        long incoming = req != null && req.clientSequence() != null
+                ? req.clientSequence()
+                : state.stateVersion() + 1;
+        if (incoming <= state.stateVersion()) return state;
+        Map<Long,Integer> answers = new HashMap<>(state.answers());
+        if (req != null && req.answers() != null) {
+            for (var entry : req.answers()) {
+                if (entry.questionId() != null) answers.put(entry.questionId(), entry.selectedOptionIndex());
+            }
+        }
+        int current = req != null && req.currentQuestionIndex() != null
+                ? req.currentQuestionIndex() : state.currentQuestionIndex();
+
+        ExamSessionState pending = new ExamSessionState(
+                state.studentId(), state.examId(), "SUBMITTED_PENDING", state.startedAt(), state.deadline(),
+                current, state.tabSwitchCount(), state.restrictionUntil(), incoming, state.checkpointVersion(), true,
+                state.questions(), answers, state.correctAnswers());
+        save(pending);
+        return pending;
     }
 
     public ViolationResult recordViolation(Long examId, Long studentId, SaveProgressBatchRequest req) {
@@ -155,11 +191,24 @@ public class RedisExamStateService {
         return reopened;
     }
 
+    /**
+     * Mark the Redis attempt completed without deleting it immediately. Keeping
+     * the final state for its normal TTL is deliberate: if a database commit
+     * or a later reconciliation/export needs to inspect the last exam state,
+     * Redis remains a recovery copy.
+     */
     public void markCompleted(Long examId, Long studentId) {
         try {
             String k = key(examId, studentId);
-            redis.opsForValue().getAndDelete(k);
-            redis.opsForSet().remove(ACTIVE_SET, k);
+            Optional<ExamSessionState> existing = get(examId, studentId);
+            if (existing.isEmpty()) return;
+            ExamSessionState state = existing.get();
+            ExamSessionState completed = new ExamSessionState(
+                    state.studentId(), state.examId(), "COMPLETED", state.startedAt(), state.deadline(),
+                    state.currentQuestionIndex(), state.tabSwitchCount(), state.restrictionUntil(),
+                    state.stateVersion(), state.checkpointVersion(), false,
+                    state.questions(), state.answers(), state.correctAnswers());
+            save(completed);
         } catch (Exception ignored) { }
     }
 

@@ -36,10 +36,14 @@ public class ExamService {
     private final StudentRepository studentRepository;
     private final ExamCodeGenerator examCodeGenerator;
     private final AdminLogRepository adminLogRepository;
+    /** Announces schedule/reschedule so ExamFinalizationService plans the end-of-slot submit. */
+    private final org.springframework.context.ApplicationEventPublisher events;
 
     public ExamService(ExamRepository examRepository, CollegeRepository collegeRepository,
                         CourseRepository courseRepository, StudentRepository studentRepository,
-                        ExamCodeGenerator examCodeGenerator, AdminLogRepository adminLogRepository) {
+                        ExamCodeGenerator examCodeGenerator, AdminLogRepository adminLogRepository,
+                        org.springframework.context.ApplicationEventPublisher events) {
+        this.events = events;
         this.examRepository = examRepository;
         this.collegeRepository = collegeRepository;
         this.courseRepository = courseRepository;
@@ -81,6 +85,7 @@ public class ExamService {
 
         exam = examRepository.save(exam);
         logAction("EXAM_SCHEDULED", exam.getId());
+        events.publishEvent(new ExamFinalizationService.ExamTimingChanged(exam.getId()));
         return ExamResponse.from(exam, 0);
     }
 
@@ -109,6 +114,7 @@ public class ExamService {
 
         exam = examRepository.save(exam);
         logAction("EXAM_RESCHEDULED", exam.getId());
+        events.publishEvent(new ExamFinalizationService.ExamTimingChanged(exam.getId()));
 
         long submitted = studentRepository.countByExamCodeAndExamSubmittedTrue(exam.getExamCode());
         return ExamResponse.from(exam, submitted);

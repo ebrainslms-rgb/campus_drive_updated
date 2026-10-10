@@ -144,7 +144,7 @@ function BannerSlotCard({ slot, summary, onUploaded, onRemoved }) {
  * and the student-facing carousel only ever shows slots that actually
  * have an image.
  */
-export default function AdminBanners() {
+export default function AdminBanners({ embedded = false }) {
   const { adminKey } = useParams();
   const navigate = useNavigate();
   const [slots, setSlots] = useState(null);
@@ -167,17 +167,14 @@ export default function AdminBanners() {
   const posters = slots.filter(s => s.slot !== 'HERO');
 
   return (
-    <div className="space-y-5">
-      <button onClick={() => navigate(`/${adminKey}/admin/overview`)} className="flex items-center gap-1.5 text-sm font-medium" style={{ color: 'var(--eb-blue)' }}>
+    <div className={embedded ? 'space-y-4' : 'space-y-5'}>
+      {!embedded && <button onClick={() => navigate(`/${adminKey}/admin/overview`)} className="flex items-center gap-1.5 text-sm font-medium" style={{ color: 'var(--eb-blue)' }}>
         <Ic.Back /> Back to Overview
-      </button>
+      </button>}
 
       <div>
-        <h1 className="text-xl font-bold" style={{ color: 'var(--eb-text)' }}>Exam Banners</h1>
-        <p className="text-sm mt-1" style={{ color: 'var(--eb-text-muted)' }}>
-          Manage the images shown on the Student Rules page — the hero banner (left side) and up to 8 posters (right side, after the countdown).
-          Any slot left empty automatically shows its existing default until you upload something here.
-        </p>
+        <h3 className="text-sm font-semibold" style={{ color: 'var(--eb-text)' }}>Registration / Rules Banners</h3>
+        <p className="text-xs mt-1" style={{ color: 'var(--eb-text-muted)' }}>Manage the hero banner and posters used by the student-facing rules experience.</p>
       </div>
 
       {hero && (

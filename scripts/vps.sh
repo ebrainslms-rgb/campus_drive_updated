@@ -175,7 +175,7 @@ cmd_build() {
     require_command npm
     log_info "Building frontend ..."
     npm ci --prefix "${PROJECT_ROOT}/frontend"
-    npm run build --prefix "${PROJECT_ROOT}/frontend"
+    VITE_ADMIN_URL_KEY="${ADMIN_URL_KEY:?ADMIN_URL_KEY is missing in .env}" npm run build --prefix "${PROJECT_ROOT}/frontend"
   }
   case "${target}" in
     all)     build_backend; build_frontend ;;

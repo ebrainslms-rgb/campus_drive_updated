@@ -2,10 +2,13 @@ package com.ecobrains.lms.service;
 
 import com.ecobrains.lms.dto.response.SiteContentFieldResponse;
 import com.ecobrains.lms.entity.SiteContent;
+import com.ecobrains.lms.repository.ExamRepository;
 import com.ecobrains.lms.exception.ApiException;
 import com.ecobrains.lms.repository.SiteContentRepository;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.*;
 
 /**
@@ -53,9 +56,12 @@ public class SiteContentService {
     }
 
     private final SiteContentRepository siteContentRepository;
+    private final ExamRepository examRepository;
+    private final ZoneId zoneId = ZoneId.of("Asia/Kolkata");
 
-    public SiteContentService(SiteContentRepository siteContentRepository) {
+    public SiteContentService(SiteContentRepository siteContentRepository, ExamRepository examRepository) {
         this.siteContentRepository = siteContentRepository;
+        this.examRepository = examRepository;
     }
 
     // ================= shared generic helpers =================
@@ -131,6 +137,13 @@ public class SiteContentService {
     }
 
         public void updateExamSetting(String key, String value) {
+        if (examRepository.existsByStartTimeLessThanEqualAndEndTimeGreaterThanEqual(
+                LocalDateTime.now(zoneId), LocalDateTime.now(zoneId))) {
+            throw ApiException.conflict(
+                    "An examination is currently running. Manual submit timing cannot be changed while a test is in progress. Please try again after all running tests are completed."
+            );
+        }
+
         if ("MANUAL_SUBMIT_WINDOW_MINUTES".equals(key)) {
             try {
                 int minutes = Integer.parseInt(value.trim());

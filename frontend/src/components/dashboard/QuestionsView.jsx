@@ -12,7 +12,6 @@ Which number comes next: 2 4 8 16 ?,32,30,24,18,A,logical
 What does HTML stand for?,HyperText Markup Language,High Text Markup Language,HyperText Markdown Language,HyperText Making Language,A,frontend
 What is a closure in JS?,A function bundled with its lexical environment,A loop,A CSS selector,An HTML tag,A,programming`;
 
-const SECTION_TARGETS = { aptitude: 15, logical: 15, programming: 35, frontend: 15 };
 const COURSE_STYLES = [
   { color: '#F97316', bg: 'rgba(249,115,22,0.10)',  border: 'rgba(249,115,22,0.28)',  icon: '☕' },
   { color: '#34D399', bg: 'rgba(52,211,153,0.10)',  border: 'rgba(52,211,153,0.28)',  icon: '🐍' },
@@ -326,6 +325,25 @@ function UploadPanel({ course, style, onBack, onReview }) {
                 </div>
               )}
 
+              {/* Questions per section — information only, there is no required count */}
+              {preview.typeCounts && preview.validCount > 0 && (
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {[
+                    ['aptitude', 'Aptitude'], ['logical', 'Logical'], ['programming', 'Programming'],
+                    ['frontend', 'Front-End'], ['health', 'Health'],
+                  ].filter(([k]) => preview.typeCounts[k] > 0)
+                    .map(([k, label]) => `${label} ${preview.typeCounts[k]}`)
+                    .join(', ')}
+                </p>
+              )}
+
+              {preview.invalidCount > 0 && (
+                <p className="text-xs font-medium" style={{ color: '#DC2626' }}>
+                  Fix the {preview.invalidCount} invalid row{preview.invalidCount !== 1 ? 's' : ''} listed above in your CSV, then choose the file again.
+                  The upload replaces the whole question bank, so a file with invalid rows is not accepted.
+                </p>
+              )}
+
               <div className="flex items-center gap-2">
                 <button onClick={resetSelection}
                   className="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors"
@@ -411,7 +429,7 @@ function UploadPanel({ course, style, onBack, onReview }) {
           {/* Confirm & upload button — disabled until a valid preview exists */}
           {!showReplaceConfirm && (
             <button onClick={requestUpload}
-              disabled={loading || !file || previewLoading || preview?.fatal || (preview && preview.validCount === 0)}
+              disabled={loading || !file || previewLoading || preview?.fatal || (preview && (preview.validCount === 0 || preview.invalidCount > 0))}
               className="w-full py-3 rounded-xl text-sm font-semibold text-slate-800 dark:text-slate-100 transition-all hover:scale-[1.01] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               style={{ background: `linear-gradient(135deg, ${style.color}, ${style.color}cc)` }}>
               {loading
@@ -428,24 +446,22 @@ function UploadPanel({ course, style, onBack, onReview }) {
           <div className="rounded-2xl p-5 space-y-4 border"
             style={{ background:'var(--eb-surface-muted)', borderColor:'rgba(100,116,139,0.3)' }}>
             <div>
-              <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Exam Paper Structure</h4>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">80 Questions / 60 Mins</p>
+              <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Question Bank</h4>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Questions are loaded from the course question bank as configured by the administrator.
+              </p>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-2">
               {[
-                { key:'aptitude',    label:'Aptitude',    target:15,  color:'#06B6D4' },
-                { key:'logical',     label:'Logical',     target:15,  color:'#F97316' },
-                { key:'programming', label:'Programming', target:35,  color:'#10B981' },
-                { key:'frontend',    label:'Front-End',   target:15,  color:'#A855F7' },
+                { key:'aptitude', label:'Aptitude', color:'#06B6D4' },
+                { key:'logical', label:'Logical', color:'#F97316' },
+                { key:'programming', label:'Programming', color:'#10B981' },
+                { key:'frontend', label:'Front-End', color:'#A855F7' },
+                { key:'health', label:'Health', color:'#16A34A' },
               ].map(sec => (
-                <div key={sec.key}>
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="text-slate-600 dark:text-slate-300">{sec.label}</span>
-                    <span className="text-slate-500 dark:text-slate-400">Target: {sec.target} questions</span>
-                  </div>
-                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background:'rgba(255,255,255,0.06)' }}>
-                    <div className="h-full rounded-full" style={{ width:'100%', backgroundColor: sec.color + '40' }} />
-                  </div>
+                <div key={sec.key} className="flex items-center gap-2 text-xs">
+                  <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: sec.color }} />
+                  <span className="text-slate-600 dark:text-slate-300">{sec.label}</span>
                 </div>
               ))}
             </div>
@@ -462,7 +478,7 @@ function UploadPanel({ course, style, onBack, onReview }) {
                 <span className="text-slate-500 dark:text-slate-400 text-right">
                   {col === 'correctAnswer' ? 'A / B / C / D'
                     : col === 'correctAns'  ? 'A / B / C / D (alias)'
-                    : col === 'type' ? 'aptitude|logical|programming|frontend'
+                    : col === 'type' ? 'aptitude|logical|programming|frontend|health'
                     : col === 'question' ? 'Question text'
                     : `Option ${col.slice(-1)}`}
                 </span>

@@ -1,20 +1,18 @@
 package com.ecobrains.lms.dto.request;
 
 import jakarta.validation.constraints.*;
+import java.util.Map;
 
 public record StudentRegisterRequest(
-        @NotBlank(message = "Full name is required") String fullName,
-        @NotBlank(message = "Email is required") @Email(message = "Invalid email address") String email,
-        @NotNull(message = "Date of birth is required") String dob,
-        @NotBlank(message = "Phone number is required") @Pattern(regexp = "\\d{10}", message = "Phone number must be exactly 10 digits") String phoneNumber,
-        @NotBlank(message = "College is required") String collegeName,
-        @NotBlank(message = "Location is required") String location,
-        String state,
-        @NotBlank(message = "Branch is required") String branch,
-        @NotBlank(message = "Highest qualification is required") String highestQualification,
-        @NotNull(message = "Academic score is required") @DecimalMin(value = "0.0", message = "Academic score cannot be negative") Double aggregateMarks,
-        @NotBlank(message = "Academic score type is required") String academicScoreType,
-        @NotNull(message = "Year of passing is required") Integer yearOfPassing,
-        @NotBlank(message = "Course is required") String courseName,
-        String selectedInCampusDrive
+ @NotBlank(message="Full name is required") String fullName,
+ @NotBlank(message="Email is required") @Email(message="Invalid email address") String email,
+ String dob,String gender,
+ @NotBlank(message="Phone number is required") @Pattern(regexp="\\d{10}",message="Phone number must be exactly 10 digits") String phoneNumber,
+ @NotBlank(message="College is required") String collegeName,
+ String location,String state,
+ @NotBlank(message="Branch / Domain is required") String branch,
+ String highestQualification, Double aggregateMarks,String academicScoreType,Integer yearOfPassing,
+ @NotBlank(message="Course is required") String courseName,
+ String selectedInCampusDrive,
+ Map<String,String> customFields
 ) {}

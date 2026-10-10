@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import axios from '../../utils/api';
+import { useAdminAuth } from '../../context/AdminContext';
 import KpiCard from './shared/KpiCard.jsx';
 import DonutChart from './shared/DonutChart.jsx';
 import BarChart from './shared/BarChart.jsx';
@@ -28,7 +29,11 @@ export default function CollegeOverview() {
   const [drivesPage, setDrivesPage] = useState(0); // 0-indexed page of 4
   const [drives, setDrives] = useState(null);
   const [drivesTotal, setDrivesTotal] = useState(0);
-  const [topPerformers, setTopPerformers] = useState(null);
+  // "Students" box: students of this college, filtered by status + course
+  const { courses = [] } = useAdminAuth();
+  const [boxStatus, setBoxStatus] = useState('');        // '' = all | TEST_WRITTEN | REGISTERED (not written)
+  const [boxCourseId, setBoxCourseId] = useState('');
+  const [boxData, setBoxData] = useState(null);         // { students: [...5], total }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -50,15 +55,29 @@ export default function CollegeOverview() {
       .catch(() => setDrives([]));
   }, [collegeId]);
 
-  const loadTopPerformers = useCallback(() => {
-    axios.get(`/admin/colleges/${collegeId}/students`, { params: { page: 1, size: 5, sort: 'score,desc' } })
-      .then(res => setTopPerformers(res.data.content || []))
-      .catch(() => setTopPerformers([]));
-  }, [collegeId]);
+  const loadBoxStudents = useCallback(() => {
+    setBoxData(null);
+    axios.get('/admin/students', {
+      params: { collegeId, courseId: boxCourseId || undefined, testStatus: boxStatus || undefined, page: 1 },
+    })
+      .then(res => setBoxData({
+        students: (Array.isArray(res.data?.students) ? res.data.students : []).slice(0, 5),
+        total: res.data?.totalStudents ?? 0,
+      }))
+      .catch(() => setBoxData({ students: [], total: 0 }));
+  }, [collegeId, boxCourseId, boxStatus]);
+
+  /** Opens the Students page with this college (+ course / status) already selected. */
+  const openStudents = (testStatus = '', courseId = '') => {
+    const q = new URLSearchParams({ collegeId: String(collegeId) });
+    if (courseId) q.set('courseId', String(courseId));
+    if (testStatus) q.set('testStatus', testStatus);
+    navigate(`/${adminKey}/admin/students?${q.toString()}`);
+  };
 
   useEffect(() => { loadOverview(); }, [loadOverview]);
   useEffect(() => { loadDrives(drivesPage); }, [loadDrives, drivesPage]);
-  useEffect(() => { loadTopPerformers(); }, [loadTopPerformers]);
+  useEffect(() => { loadBoxStudents(); }, [loadBoxStudents]);
 
   if (error) {
     return (
@@ -120,9 +139,17 @@ export default function CollegeOverview() {
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-        <KpiCard label="Total Students" value={overview?.totalStudents ?? 0} loading={loading} />
-        <KpiCard label="Attempted" value={overview?.attempted ?? 0} color="#10B981" loading={loading} />
-        <KpiCard label="Not Attempted" value={overview?.notAttempted ?? 0} color="#EF4444" loading={loading} />
+        {[
+          { label: 'Total Students', value: overview?.totalStudents ?? 0, color: undefined, status: '' },
+          { label: 'Attempted', value: overview?.attempted ?? 0, color: '#10B981', status: 'TEST_WRITTEN' },
+          { label: 'Not Attempted', value: overview?.notAttempted ?? 0, color: '#EF4444', status: 'REGISTERED' },
+        ].map(card => (
+          <button key={card.label} type="button" onClick={() => openStudents(card.status)}
+            title={`View ${card.label.toLowerCase()} in Students`}
+            className="text-left rounded-2xl transition-transform hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
+            <KpiCard label={card.label} value={card.value} color={card.color} loading={loading} />
+          </button>
+        ))}
         <KpiCard label="Total Drives" value={overview?.totalDrivesConducted ?? 0} color="var(--eb-blue)" loading={loading} />
         <KpiCard label="Avg Score" value={overview?.averageScorePercent != null ? `${overview.averageScorePercent.toFixed(1)}%` : '—'} color="var(--eb-orange)" loading={loading} />
         <KpiCard label="Highest Score" value={overview?.highestScorePercent != null ? `${overview.highestScorePercent.toFixed(1)}%` : '—'} color="#A855F7" loading={loading} />
@@ -212,37 +239,64 @@ export default function CollegeOverview() {
         )}
       </div>
 
-      {/* Top performers */}
+      {/* Students of this college (replaces Top performers) */}
       <div className="rounded-2xl p-5 border" style={{ background: 'var(--eb-surface)', borderColor: 'var(--eb-border)' }}>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold" style={{ color: 'var(--eb-text)' }}>Top Performers</h3>
-          <Link to={`/${adminKey}/admin/colleges/${collegeId}/drives`} className="text-xs font-semibold flex items-center gap-1" style={{ color: 'var(--eb-blue)' }}>
-            View all students <Ic.Arrow />
-          </Link>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <h3 className="text-sm font-semibold" style={{ color: 'var(--eb-text)' }}>
+            Students{boxData ? <span className="ml-1.5 font-normal" style={{ color: 'var(--eb-text-faint)' }}>({boxData.total})</span> : null}
+          </h3>
+          <button type="button" onClick={() => openStudents(boxStatus, boxCourseId)}
+            className="text-xs font-semibold flex items-center gap-1" style={{ color: 'var(--eb-blue)' }}>
+            View all <Ic.Arrow />
+          </button>
         </div>
-        {topPerformers === null ? <RowSkeleton rows={5} /> : topPerformers.length > 0 ? (
+
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <div className="inline-flex rounded-xl p-1" style={{ background: 'var(--eb-surface-muted)' }} role="tablist" aria-label="Test status">
+            {[['', 'All'], ['TEST_WRITTEN', 'Test written'], ['REGISTERED', 'Not written']].map(([value, label]) => (
+              <button key={label} type="button" role="tab" aria-selected={boxStatus === value} onClick={() => setBoxStatus(value)}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+                style={boxStatus === value
+                  ? { background: 'var(--eb-surface)', color: 'var(--eb-blue)', boxShadow: '0 1px 2px rgba(0,0,0,0.08)' }
+                  : { color: 'var(--eb-text-muted)' }}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <select value={boxCourseId} onChange={e => setBoxCourseId(e.target.value)} aria-label="Course"
+            className="eb-input text-xs !w-auto !py-1.5">
+            <option value="">All Courses</option>
+            {courses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+
+        {boxData === null ? <RowSkeleton rows={5} /> : boxData.students.length > 0 ? (
           <div className="divide-y" style={{ borderColor: 'var(--eb-border)' }}>
-            {topPerformers.map((s, i) => (
-              <button key={s.studentId} onClick={() => navigate(`/${adminKey}/admin/students/${s.studentId}`)}
-                className="w-full flex items-center justify-between py-2.5 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-700 -mx-2 px-2 rounded-lg">
-                <div className="flex items-center gap-3 min-w-0">
-                  <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
-                    style={{ background: 'var(--eb-blue-soft)', color: 'var(--eb-blue)' }}>
-                    {i + 1}
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate" style={{ color: 'var(--eb-text)' }}>{s.fullName}</p>
-                    <p className="text-[11px]" style={{ color: 'var(--eb-text-faint)' }}>{s.courseName}</p>
-                  </div>
+            {boxData.students.map(st => (
+              <button key={st.id} type="button" onClick={() => navigate(`/${adminKey}/admin/students/${st.id}`)}
+                className="w-full flex items-center justify-between gap-3 py-2.5 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-700 -mx-2 px-2 rounded-lg">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate" style={{ color: 'var(--eb-text)' }}>{st.name}</p>
+                  <p className="text-[11px] truncate" style={{ color: 'var(--eb-text-faint)' }}>
+                    {[st.courseName, st.branch].filter(Boolean).join(' · ')}
+                  </p>
                 </div>
-                <span className="text-sm font-semibold flex-shrink-0" style={{ color: 'var(--eb-blue)' }}>
-                  {s.scorePercent != null ? `${s.scorePercent.toFixed(1)}%` : '—'}
-                </span>
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
+                    style={st.testWritten
+                      ? { background: 'var(--eb-success-soft)', color: 'var(--eb-success)' }
+                      : { background: 'var(--eb-warning-soft)', color: 'var(--eb-warning)' }}>
+                    {st.testWritten ? 'Test written' : 'Not written'}
+                  </span>
+                  {st.testSubmitted && st.totalScore != null && (
+                    <span className="text-sm font-semibold w-10 text-right" style={{ color: 'var(--eb-blue)' }}>{st.totalScore}</span>
+                  )}
+                </div>
               </button>
             ))}
           </div>
         ) : (
-          <EmptyState message="No submitted attempts yet for this college." />
+          <EmptyState message="No students match this selection." />
         )}
       </div>
     </div>

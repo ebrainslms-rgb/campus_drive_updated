@@ -109,7 +109,7 @@ public class DriveService {
      * codebase that might still call this with those set is broken.
      */
     public Page<DriveStudentResponse> students(Long examId, Long courseId, Double scoreMin, Double scoreMax,
-                                                String attemptStatus, String submissionStatus,
+                                                String attemptStatus, String submissionStatus, String search,
                                                 int page, int size, String sortDir) {
         Exam exam = examRepository.findById(examId).orElseThrow(() -> ApiException.notFound("Exam not found."));
 
@@ -120,7 +120,7 @@ public class DriveService {
 
         Pageable pageable = PageRequest.of(Math.max(page - 1, 0), size);
         Page<Long> idPage = studentRepository.findIdsInScoreRange(
-                examId, courseId, attemptedOnly, submittedOnly, scoreMin, scoreMax, pageable);
+                examId, courseId, attemptedOnly, submittedOnly, scoreMin, scoreMax, search, pageable);
 
         List<Student> students = studentRepository.findAllById(idPage.getContent());
         // findAllById does not preserve order - re-sort by score to match the requested sort direction.
@@ -137,9 +137,9 @@ public class DriveService {
      *  large page is an acceptable trade-off against building a second,
      *  fully-streaming export path. */
     public List<DriveStudentResponse> exportRows(Long examId, Long courseId, Double scoreMin, Double scoreMax,
-                                                  String attemptStatus, String submissionStatus, String sortDir) {
+                                                  String attemptStatus, String submissionStatus, String search, String sortDir) {
         Page<DriveStudentResponse> all = students(examId, courseId, scoreMin, scoreMax,
-                attemptStatus, submissionStatus, 1, 50_000, sortDir);
+                attemptStatus, submissionStatus, search, 1, 50_000, sortDir);
         return all.getContent();
     }
 
@@ -155,16 +155,16 @@ public class DriveService {
      *                     drive/examId.
      */
     public List<DriveStudentResponse> exportForMode(Long examId, String mode, Long courseId,
-                                                      Double scoreMin, Double scoreMax, String sortDir,
+                                                      Double scoreMin, Double scoreMax, String search, String sortDir,
                                                       int currentPage, int currentSize) {
         if ("CURRENT_PAGE".equalsIgnoreCase(mode)) {
-            return students(examId, courseId, scoreMin, scoreMax, null, null, currentPage, currentSize, sortDir).getContent();
+            return students(examId, courseId, scoreMin, scoreMax, null, null, search, currentPage, currentSize, sortDir).getContent();
         }
         if ("ALL_STUDENTS".equalsIgnoreCase(mode)) {
-            return exportRows(examId, null, null, null, null, null, sortDir);
+            return exportRows(examId, null, null, null, null, null, null, sortDir);
         }
         // ALL_FILTERED (default/fallback)
-        return exportRows(examId, courseId, scoreMin, scoreMax, null, null, sortDir);
+        return exportRows(examId, courseId, scoreMin, scoreMax, null, null, search, sortDir);
     }
 
     /** Batch-hydrates submission-type/paper-size/answered-count for one
@@ -210,7 +210,7 @@ public class DriveService {
                     durationSeconds,
                     s.getEmail(), s.getPhoneNumber(), collegeName, s.getBranch(),
                     s.getHighestQualification(), s.getAggregateMarks(), s.getAcademicScoreType(), s.getYearOfPassing(),
-                    s.getSelectedInCampusDrive(), answered.intValue()
+                    s.getSelectedInCampusDrive(), answered.intValue(), s.getGender(), s.getExamCode(), s.getTabSwitchViolations()
             ));
         }
 
