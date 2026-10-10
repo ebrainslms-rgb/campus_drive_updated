@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import axios from '../../utils/api';
 import { notify } from '../../utils/notify';
-import { downloadErrorMessage, filenameFromDisposition, saveBlob } from '../../utils/download';
+import { downloadErrorMessage, saveBlob, INVALID_FILENAME_CHARS } from '../../utils/download';
 import { RowSkeleton } from './shared/LoadingSkeleton.jsx';
+import ExportFileNameField from './shared/ExportFileNameField.jsx';
 
 /*
  * Shortlist & Export (opened from Drive Details).
@@ -38,6 +39,11 @@ const LOAD_SIZE = 10000;
 
 const EMPTY_ACADEMIC = { selected: null, minCgpa: '', minPct: '' };
 const EMPTY_TEST = { selected: null, min: '' };
+const EMPTY_OTHER_CD = { selected: null };
+
+/* EchoBrains orange on hover for the main action buttons of this page. */
+const ACTION_BTN = 'eb-btn !w-auto !py-1.5 !px-4 text-xs hover:!bg-[color:var(--eb-orange)]';
+const CANCEL_BTN = 'eb-btn-outline !w-auto !py-1.5 !px-4 text-xs';
 
 /* ------------------------------------------------------------------------ */
 /* Helpers                                                                   */
@@ -62,6 +68,30 @@ function academicOf(r) {
     value,
     label: cgpa ? `${fmtNumber(value)} CGPA` : `${fmtNumber(value)}%`,
   };
+}
+
+/** "Selected in any other campus drive" (registration) -> 'YES' | 'NO' | 'BLANK' (not answered). */
+function otherCdOf(r) {
+  const v = String(r.selectedInCampusDrive ?? '').trim().toUpperCase();
+  if (v === 'YES' || v === 'Y' || v === 'TRUE') return 'YES';
+  if (v === 'NO' || v === 'N' || v === 'FALSE') return 'NO';
+  return 'BLANK';
+}
+
+/** Same rule as the server: letters/digits joined by "_" + "_Feedback_Sheet_dd-MM-yyyy". */
+function defaultFileBase(domainName, driveDate) {
+  const d = String(domainName || '').replace(/[^\p{L}\p{N}]+/gu, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'Domain';
+  const parts = String(driveDate || '').split('-'); // yyyy-mm-dd
+  const date = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : '';
+  return `${d}_Feedback_Sheet${date ? `_${date}` : ''}`;
+}
+
+/** File name typed in the export popup -> safe "<name>.xlsx" (falls back to the default). */
+function finalFileName(typed, fallbackBase) {
+  let base = String(typed || '').trim().replace(/\.xlsx$/i, '');
+  base = base.replace(new RegExp(INVALID_FILENAME_CHARS.source, 'g'), '_').replace(/[\u0000-\u001f]/g, '').replace(/^[.\s]+|[.\s]+$/g, '');
+  if (!/[\p{L}\p{N}]/u.test(base)) base = fallbackBase;
+  return `${base.slice(0, 150)}.xlsx`;
 }
 
 function testKey(r) {
@@ -142,18 +172,24 @@ const Ic = {
  * (+ "(Blanks)"), with Cancel / Apply - like an Excel column filter.
  * Changes only take effect on Apply.
  */
-function FilterPopup({ title, groups, selected, mins, onApply, onClose }) {
+function FilterPopup({ title, groups, selected, mins, onApply, onClose, searchable = true }) {
   const allKeys = useMemo(() => groups.flatMap(g => g.items.map(i => i.key)), [groups]);
   const [draft, setDraft] = useState(() => new Set(selected ?? allKeys));
   const [minDraft, setMinDraft] = useState(() => Object.fromEntries(mins.map(m => [m.key, m.value ?? ''])));
   const [query, setQuery] = useState('');
   const [error, setError] = useState('');
+  const panelRef = useRef(null);
 
   useEffect(() => {
     const onKey = e => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  // Bring the whole popup (incl. Cancel / Apply) into view when it opens.
+  useEffect(() => {
+    panelRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, []);
 
   const q = query.trim().toLowerCase();
   const visibleGroups = groups
@@ -206,23 +242,26 @@ function FilterPopup({ title, groups, selected, mins, onApply, onClose }) {
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} aria-hidden="true" />
       <div
+        ref={panelRef}
         role="dialog"
         aria-label={`${title} filter`}
-        className="fixed inset-x-4 top-24 z-50 sm:absolute sm:inset-x-auto sm:left-0 sm:top-full sm:mt-2 sm:w-80 rounded-2xl border p-4 space-y-3 shadow-xl"
+        className="fixed inset-x-4 top-20 z-50 sm:absolute sm:inset-x-auto sm:left-0 sm:top-full sm:mt-1.5 sm:w-64 rounded-xl border p-3 space-y-2 shadow-xl"
         style={{ background: 'var(--eb-surface)', borderColor: 'var(--eb-border)' }}
       >
-        <p className="text-sm font-semibold" style={{ color: 'var(--eb-text)' }}>{title}</p>
+        <p className="text-xs font-semibold" style={{ color: 'var(--eb-text)' }}>{title}</p>
 
-        <input
-          className="eb-input !py-2 !px-3"
-          placeholder="Search"
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          autoFocus
-        />
+        {searchable && (
+          <input
+            className="eb-input !py-1.5 !px-2.5 !text-xs !rounded-lg"
+            placeholder="Search"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            autoFocus
+          />
+        )}
 
         {mins.map(m => (
-          <label key={m.key} className="flex items-center justify-between gap-3 text-sm" style={{ color: 'var(--eb-text-muted)' }}>
+          <label key={m.key} className="flex items-center justify-between gap-2 text-xs" style={{ color: 'var(--eb-text-muted)' }}>
             <span>{m.label}</span>
             <input
               type="number"
@@ -230,7 +269,7 @@ function FilterPopup({ title, groups, selected, mins, onApply, onClose }) {
               min="0"
               max={m.max}
               step={m.step || 'any'}
-              className="eb-input !w-24 !py-1.5 !px-2.5 text-right"
+              className="eb-input !w-16 !py-1 !px-2 !text-xs !rounded-lg text-right"
               placeholder={m.placeholder || ''}
               value={minDraft[m.key] ?? ''}
               onChange={e => { setMinDraft(prev => ({ ...prev, [m.key]: e.target.value })); setError(''); }}
@@ -238,15 +277,15 @@ function FilterPopup({ title, groups, selected, mins, onApply, onClose }) {
           </label>
         ))}
 
-        <div className="rounded-xl border max-h-64 overflow-y-auto py-1" style={{ borderColor: 'var(--eb-border)' }}>
+        <div className="rounded-lg border max-h-44 overflow-y-auto overscroll-contain py-0.5" style={{ borderColor: 'var(--eb-border)' }}>
           {visibleKeys.length === 0 ? (
-            <p className="text-xs px-3 py-3" style={{ color: 'var(--eb-text-faint)' }}>No matching values.</p>
+            <p className="text-xs px-2.5 py-2" style={{ color: 'var(--eb-text-faint)' }}>No matching values.</p>
           ) : (
             <>
-              <label className="flex items-center gap-2.5 px-3 py-1.5 text-sm font-medium cursor-pointer" style={{ color: 'var(--eb-text)' }}>
+              <label className="flex items-center gap-2 px-2.5 py-1 text-xs font-medium cursor-pointer" style={{ color: 'var(--eb-text)' }}>
                 <input
                   type="checkbox"
-                  className="w-4 h-4"
+                  className="w-3.5 h-3.5"
                   style={{ accentColor: 'var(--eb-blue)' }}
                   checked={allVisibleChecked}
                   ref={el => { if (el) el.indeterminate = someVisibleChecked; }}
@@ -257,21 +296,21 @@ function FilterPopup({ title, groups, selected, mins, onApply, onClose }) {
               {visibleGroups.map(g => (
                 <div key={g.title || 'values'}>
                   {g.title && (
-                    <p className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--eb-text-faint)' }}>
+                    <p className="px-2.5 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'var(--eb-text-faint)' }}>
                       {g.title}
                     </p>
                   )}
                   {g.items.map(item => (
-                    <label key={item.key} className="flex items-center gap-2.5 px-3 py-1.5 text-sm cursor-pointer" style={{ color: 'var(--eb-text)' }}>
+                    <label key={item.key} className="flex items-center gap-2 px-2.5 py-1 text-xs cursor-pointer" style={{ color: 'var(--eb-text)' }}>
                       <input
                         type="checkbox"
-                        className="w-4 h-4"
+                        className="w-3.5 h-3.5"
                         style={{ accentColor: 'var(--eb-blue)' }}
                         checked={draft.has(item.key)}
                         onChange={() => toggle(item.key)}
                       />
                       <span className="flex-1">{item.label}</span>
-                      <span className="text-xs font-mono" style={{ color: 'var(--eb-text-faint)' }}>{item.count}</span>
+                      <span className="text-[10px] font-mono" style={{ color: 'var(--eb-text-faint)' }}>{item.count}</span>
                     </label>
                   ))}
                 </div>
@@ -282,9 +321,9 @@ function FilterPopup({ title, groups, selected, mins, onApply, onClose }) {
 
         {error && <p role="alert" className="text-xs" style={{ color: 'var(--eb-danger)' }}>{error}</p>}
 
-        <div className="flex justify-end gap-2 pt-1">
-          <button type="button" onClick={onClose} className="eb-btn-outline !w-auto !py-2 !px-4 text-xs">Cancel</button>
-          <button type="button" onClick={apply} className="eb-btn !w-auto !py-2 !px-4 text-xs">Apply</button>
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className={CANCEL_BTN}>Cancel</button>
+          <button type="button" onClick={apply} className={ACTION_BTN}>Apply</button>
         </div>
       </div>
     </>
@@ -342,10 +381,12 @@ export default function ShortlistExport() {
   const [domainId, setDomainId] = useState('');
   const [academic, setAcademic] = useState(EMPTY_ACADEMIC);
   const [test, setTest] = useState(EMPTY_TEST);
+  const [otherCd, setOtherCd] = useState(EMPTY_OTHER_CD);
   const [protectedIds, setProtectedIds] = useState(() => new Set());
   const [headerNames, setHeaderNames] = useState({});
 
-  const [openPopup, setOpenPopup] = useState(null); // 'ACADEMIC' | 'TEST' | 'PROTECTED' | 'HEADERS'
+  const [openPopup, setOpenPopup] = useState(null); // 'ACADEMIC' | 'TEST' | 'OTHER_CD' | 'PROTECTED' | 'HEADERS' | 'EXPORT'
+  const [fileName, setFileName] = useState('');
   const [exporting, setExporting] = useState(false);
 
   const drivePath = collegeId
@@ -411,6 +452,7 @@ export default function ShortlistExport() {
     setDomainId(id);
     setAcademic(EMPTY_ACADEMIC);
     setTest(EMPTY_TEST);
+    setOtherCd(EMPTY_OTHER_CD);
     setProtectedIds(new Set());
     setOpenPopup(null);
   };
@@ -465,12 +507,24 @@ export default function ShortlistExport() {
 
   const paperSize = useMemo(() => paperSizeOf(domainRows), [domainRows]);
 
+  const otherCdGroups = useMemo(() => {
+    const c = { YES: 0, NO: 0, BLANK: 0 };
+    domainRows.forEach(r => { c[otherCdOf(r)] += 1; });
+    const items = [
+      { key: 'YES', label: 'Yes', count: c.YES },
+      { key: 'NO', label: 'No', count: c.NO },
+    ];
+    if (c.BLANK) items.push({ key: 'BLANK', label: '(Blanks)', count: c.BLANK });
+    return [{ title: '', items }];
+  }, [domainRows]);
+
   /* ---------------------------------------------------------------------- */
   /* Shortlist                                                               */
   /* ---------------------------------------------------------------------- */
 
   const academicActive = academic.selected !== null || academic.minCgpa !== '' || academic.minPct !== '';
   const testActive = test.selected !== null || test.min !== '';
+  const otherCdActive = otherCd.selected !== null;
 
   const shortlist = useMemo(() => {
     const minCgpa = parseMin(academic.minCgpa);
@@ -487,13 +541,15 @@ export default function ShortlistExport() {
       const k = testKey(r);
       if (test.selected && !test.selected.has(k)) return false;
       if (k !== 'BLANK' && minScore !== null && r.totalScore < minScore) return false;
+
+      if (otherCd.selected && !otherCd.selected.has(otherCdOf(r))) return false;
       return true;
     };
 
     return domainRows
       .filter(r => protectedIds.has(r.studentId) || passes(r))
       .sort(byName);
-  }, [domainRows, academic, test, protectedIds]);
+  }, [domainRows, academic, test, otherCd, protectedIds]);
 
   const protectedInList = shortlist.filter(r => protectedIds.has(r.studentId)).length;
 
@@ -511,6 +567,14 @@ export default function ShortlistExport() {
   /* Export                                                                  */
   /* ---------------------------------------------------------------------- */
 
+  const defaultBase = domain ? defaultFileBase(domain.name, drive?.date) : '';
+
+  const openExportConfirm = () => {
+    if (!domain || shortlist.length === 0 || exporting) return;
+    setFileName(defaultBase);
+    setOpenPopup('EXPORT');
+  };
+
   const handleExport = async () => {
     if (!domain || shortlist.length === 0 || exporting) return;
     setExporting(true);
@@ -525,8 +589,8 @@ export default function ShortlistExport() {
         { courseId: Number(domain.id), studentIds: shortlist.map(r => r.studentId), headers },
         { responseType: 'blob' }
       );
-      const filename = filenameFromDisposition(res.headers?.['content-disposition'], 'Feedback_Sheet.xlsx');
-      saveBlob(new Blob([res.data]), filename);
+      saveBlob(new Blob([res.data]), finalFileName(fileName, defaultBase));
+      setOpenPopup(null);
     } catch (err) {
       if (!err?.permissionHandled) notify(await downloadErrorMessage(err), 'Export failed');
     } finally {
@@ -559,6 +623,7 @@ export default function ShortlistExport() {
   const clearFilters = () => {
     setAcademic(EMPTY_ACADEMIC);
     setTest(EMPTY_TEST);
+    setOtherCd(EMPTY_OTHER_CD);
   };
 
   const driveDate = drive?.date
@@ -658,6 +723,24 @@ export default function ShortlistExport() {
                 )}
               </div>
 
+              <div className="relative">
+                {filterButton('OTHER_CD', 'Other CD', otherCdActive, !domain)}
+                {openPopup === 'OTHER_CD' && (
+                  <FilterPopup
+                    title="Selected in other campus drive"
+                    groups={otherCdGroups}
+                    selected={otherCd.selected}
+                    mins={[]}
+                    searchable={false}
+                    onApply={({ selected }) => {
+                      setOtherCd({ selected });
+                      setOpenPopup(null);
+                    }}
+                    onClose={() => setOpenPopup(null)}
+                  />
+                )}
+              </div>
+
               <button
                 type="button"
                 disabled={!domain}
@@ -673,7 +756,7 @@ export default function ShortlistExport() {
                 Mandatory / Protected{protectedIds.size ? ` (${protectedIds.size})` : ''}
               </button>
 
-              {(academicActive || testActive) && (
+              {(academicActive || testActive || otherCdActive) && (
                 <button type="button" onClick={clearFilters} className="text-sm font-medium px-1 py-2" style={{ color: 'var(--eb-blue)' }}>
                   Clear filters
                 </button>
@@ -716,9 +799,9 @@ export default function ShortlistExport() {
                   </button>
                   <button
                     type="button"
-                    onClick={handleExport}
+                    onClick={openExportConfirm}
                     disabled={shortlist.length === 0 || exporting}
-                    className="eb-btn !w-auto !py-2 !px-4 text-xs"
+                    className="eb-btn !w-auto !py-2 !px-4 text-xs hover:!bg-[color:var(--eb-orange)]"
                   >
                     <Ic.Download />
                     {exporting ? 'Exporting…' : 'Export'}
@@ -801,6 +884,45 @@ export default function ShortlistExport() {
           onSave={ids => { setProtectedIds(ids); setOpenPopup(null); }}
           onClose={() => setOpenPopup(null)}
         />
+      )}
+
+      {openPopup === 'EXPORT' && domain && (
+        <Modal
+          title="Export shortlist"
+          onClose={() => { if (!exporting) setOpenPopup(null); }}
+          footer={(
+            <>
+              <button type="button" onClick={() => setOpenPopup(null)} disabled={exporting} className={CANCEL_BTN}>Cancel</button>
+              <button type="button" onClick={handleExport} disabled={exporting} className={ACTION_BTN}>
+                <Ic.Download />
+                {exporting ? 'Exporting…' : 'Export'}
+              </button>
+            </>
+          )}
+        >
+          <div className="space-y-3">
+            <div className="rounded-xl p-3 space-y-1.5 text-sm" style={{ background: 'var(--eb-surface-muted)' }}>
+              {[
+                ['Students', `${shortlist.length}${protectedInList ? ` (incl. ${protectedInList} protected)` : ''}`],
+                ['Domain', domain.name],
+                ['College', drive?.collegeName || '—'],
+                ['Drive date', driveDate || '—'],
+              ].map(([label, value]) => (
+                <div key={label} className="flex justify-between gap-3">
+                  <span style={{ color: 'var(--eb-text-faint)' }}>{label}</span>
+                  <span className="font-medium text-right" style={{ color: 'var(--eb-text)' }}>{value}</span>
+                </div>
+              ))}
+            </div>
+            <ExportFileNameField
+              value={fileName}
+              onChange={setFileName}
+              defaultName={`${defaultBase}.xlsx`}
+              disabled={exporting}
+              hint={<>Change the name if you want. Empty = <span style={{ color: 'var(--eb-text-muted)' }}>{defaultBase}.xlsx</span></>}
+            />
+          </div>
+        </Modal>
       )}
 
       {openPopup === 'HEADERS' && (
