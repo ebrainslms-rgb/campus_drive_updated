@@ -50,12 +50,12 @@ public class ShortlistExportService {
     static final List<Column> COLUMNS = List.of(
             new Column("SL_NO", "Sl.No", Kind.SERIAL, 7, null),
             new Column("PANEL", "Panel", Kind.MANUAL, 12, null),
-            new Column("SCORE", "Score", Kind.DATA, 10, DriveStudentResponse::totalScore),
             new Column("NAME", "Name", Kind.DATA, 28, DriveStudentResponse::fullName),
             new Column("EMAIL", "Email-id", Kind.DATA, 32, DriveStudentResponse::email),
             new Column("PHONE", "Ph No", Kind.DATA, 14, DriveStudentResponse::phoneNumber),
             new Column("BRANCH", "Branch", Kind.DATA, 18, DriveStudentResponse::branch),
             new Column("ACADEMIC", "Academic Score", Kind.DATA, 15, ShortlistExportService::academicScore),
+            new Column("SCORE", "Exam Score", Kind.DATA, 13, DriveStudentResponse::totalScore),
             new Column("TECHNICAL", "Technical Knowledge (10 Marks)", Kind.MANUAL, 18, null),
             new Column("PRESENTATION", "Presentation / Communication Skills (10 Marks)", Kind.MANUAL, 22, null),
             new Column("TOTAL", "Total (20 Marks)", Kind.TOTAL, 12, null),
@@ -119,7 +119,7 @@ public class ShortlistExportService {
             }
             if ("SCORE".equals(c.key())) {
                 Integer paper = paperSize(rows);
-                if (paper != null) h = "Score /" + paper;
+                if (paper != null) h = "Exam Score /" + paper;
             }
             out.put(c.key(), h);
         }

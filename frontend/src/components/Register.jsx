@@ -245,8 +245,9 @@ const registerStyles = `
 
 @media (max-width: 980px) {
   .eb-register-layout { flex-direction: column; }
-  .eb-register-form-side { width: 100%; order: 1; padding: 38px 35px; }
-  .eb-register-brand-side { width: 100%; order: 2; min-height: 335px; }
+  /* Phones/tablets: info panel first, form below (same as the Sign In page). Laptop layout unchanged. */
+  .eb-register-form-side { width: 100%; order: 2; padding: 38px 35px; }
+  .eb-register-brand-side { width: 100%; order: 1; min-height: 335px; }
   .eb-register-form-container { max-width: 720px; }
 }
 
@@ -788,10 +789,10 @@ export default function Register() {
                     </Field>
                   )}
 
-                  {registrationSettings.academicScoreEnabled && <Field label={form.academicScoreType === "CGPA" ? "CGPA" : "Aggregate %"} icon={<IconPercent />} error={errors.aggregate}>
+                  {registrationSettings.academicScoreEnabled && <Field label={form.academicScoreType === "CGPA" ? "CGPA" : "Aggregate %"} icon={null} error={errors.aggregate}>
                     <div style={{ display: "flex", gap: "8px", width: "100%" }}>
                       {registrationSettings.academicScoreType === "BOTH" ? <select value={form.academicScoreType} disabled={loading}
-                        className="eb-register-select" style={{ width: "132px", flexShrink: 0 }}
+                        className="eb-register-select" style={{ width: "132px", flexShrink: 0, paddingLeft: "14px" }}
                         onChange={(e) => { set("academicScoreType", e.target.value); set("aggregate", ""); }}>
                         <option value="PERCENTAGE">Percentage</option><option value="CGPA">CGPA</option>
                       </select> : <div style={{width:"132px",flexShrink:0,display:"flex",alignItems:"center",padding:"0 10px",fontSize:"13px",color:"var(--register-muted)"}}>{registrationSettings.academicScoreType === "CGPA" ? "CGPA" : "Percentage"}</div>}

@@ -20,12 +20,12 @@ import { RowSkeleton } from './shared/LoadingSkeleton.jsx';
 const COLUMNS = [
   { key: 'SL_NO', label: 'Sl.No' },
   { key: 'PANEL', label: 'Panel', manual: true },
-  { key: 'SCORE', label: 'Score' },
   { key: 'NAME', label: 'Name' },
   { key: 'EMAIL', label: 'Email-id' },
   { key: 'PHONE', label: 'Ph No' },
   { key: 'BRANCH', label: 'Branch' },
   { key: 'ACADEMIC', label: 'Academic Score' },
+  { key: 'SCORE', label: 'Exam Score' },
   { key: 'TECHNICAL', label: 'Technical Knowledge (10 Marks)', manual: true },
   { key: 'PRESENTATION', label: 'Presentation / Communication Skills (10 Marks)', manual: true },
   { key: 'TOTAL', label: 'Total (20 Marks)', manual: true },
@@ -502,7 +502,7 @@ export default function ShortlistExport() {
   /* ---------------------------------------------------------------------- */
 
   const headerOf = col => {
-    if (col.key === 'SCORE') return paperSize ? `Score /${paperSize}` : 'Score';
+    if (col.key === 'SCORE') return paperSize ? `Exam Score /${paperSize}` : 'Exam Score';
     if (col.manual) return (headerNames[col.key] || '').trim() || col.label;
     return col.label;
   };
@@ -761,7 +761,6 @@ export default function ShortlistExport() {
                           >
                             <td className="px-3 py-2 font-mono text-xs" style={{ color: 'var(--eb-text-muted)' }}>{idx + 1}</td>
                             <td className="px-3 py-2" />
-                            <td className="px-3 py-2 font-semibold" style={{ color: 'var(--eb-text)' }}>{r.totalScore ?? ''}</td>
                             <td className="px-3 py-2" style={{ color: 'var(--eb-text)' }}>
                               <span className="font-medium">{r.fullName}</span>
                               {isProtected && (
@@ -777,6 +776,7 @@ export default function ShortlistExport() {
                             <td className="px-3 py-2 font-mono text-xs" style={{ color: 'var(--eb-text-muted)' }}>{r.phoneNumber}</td>
                             <td className="px-3 py-2" style={{ color: 'var(--eb-text-muted)' }}>{r.branch}</td>
                             <td className="px-3 py-2" style={{ color: 'var(--eb-text)' }}>{a.label}</td>
+                            <td className="px-3 py-2 font-semibold" style={{ color: 'var(--eb-text)' }}>{r.totalScore ?? ''}</td>
                             <td className="px-3 py-2" />
                             <td className="px-3 py-2" />
                             <td className="px-3 py-2" />
